@@ -1,0 +1,60 @@
+# ── Dependências (qualquer node_modules em qualquer pasta) ──
+node_modules/
+**/node_modules/
+
+# ── Variáveis de ambiente — NUNCA commitar ──
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# ── Logs ──
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── PM2 ──
+.pm2/
+**/.pm2/
+
+# ── pnpm ──
+.pnpm-store/
+
+# ── Build / dist ──
+dist/
+build/
+out/
+
+# ── Editores / IDEs ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Sistema operacional ──
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ── Temporários ──
+*.tmp
+*.bak
+.tmp/
+tmp/
+
+# ── Coverage / testes ──
+coverage/
+.nyc_output/
+
+# ── Possíveis arquivos sensíveis ──
+*.pem
+*.key
+*.crt
+secrets.json
+credentials.json
