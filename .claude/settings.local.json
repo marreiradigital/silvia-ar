@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh -p 2207 -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 silvia@191.5.179.124 'echo \"✓ conexão ok\"; echo \"---\"; whoami; pwd; echo \"---\"; node --version 2>/dev/null || echo \"node: não instalado\"; pnpm --version 2>/dev/null || echo \"pnpm: não instalado\"; pm2 --version 2>/dev/null || echo \"pm2: não instalado\"; git --version 2>/dev/null || echo \"git: não instalado\"; mysql --version 2>/dev/null || echo \"mysql client: não instalado\"; echo \"---\"; ls -la ~/ | head -20')",
+      "Bash(ssh -p 2207 silvia@191.5.179.124 'source ~/.nvm/nvm.sh 2>/dev/null; echo \"node: $\\(node -v 2>/dev/null || echo NAO\\)\"; echo \"npm: $\\(npm -v 2>/dev/null || echo NAO\\)\"; echo \"pnpm: $\\(pnpm -v 2>/dev/null || echo NAO\\)\"; echo \"pm2: $\\(pm2 -v 2>/dev/null || echo NAO\\)\"; echo \"---\"; ls ~/htdocs/; echo \"---\"; cat ~/.profile 2>/dev/null | tail -10')"
+    ]
+  }
+}
