@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+    <defs>
+        <radialGradient id="sphere" cx="38%" cy="32%" r="62%">
+            <stop offset="0%" stop-color="#d8ffe9"/>
+            <stop offset="35%" stop-color="#00ff88"/>
+            <stop offset="100%" stop-color="#002a18"/>
+        </radialGradient>
+        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="1.2"/>
+        </filter>
+    </defs>
+
+    <!-- Dark rounded background -->
+    <rect width="64" height="64" fill="#0b0d10" rx="12"/>
+
+    <!-- Outer aura ring -->
+    <circle cx="32" cy="32" r="20" fill="none" stroke="#00ff88" stroke-width="0.6" opacity="0.5"/>
+
+    <!-- Glow halo behind sphere -->
+    <circle cx="32" cy="32" r="16" fill="#00ff88" opacity="0.25" filter="url(#glow)"/>
+
+    <!-- Sphere -->
+    <circle cx="32" cy="32" r="14" fill="url(#sphere)"/>
+
+    <!-- Specular highlight -->
+    <ellipse cx="27" cy="26" rx="4" ry="2.4" fill="#ffffff" opacity="0.55"/>
+
+    <!-- Crosshair brackets -->
+    <g stroke="#00ff88" stroke-width="3" stroke-linecap="round">
+        <line x1="32" y1="4"  x2="32" y2="11"/>
+        <line x1="32" y1="53" x2="32" y2="60"/>
+        <line x1="4"  y1="32" x2="11" y2="32"/>
+        <line x1="53" y1="32" x2="60" y2="32"/>
+    </g>
+</svg>

@@ -1,0 +1,1562 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#0b0d10">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <title>Esferas da Taísa RA — Multiplayer</title>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html, body {
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background: #000;
+            color: #fff;
+            font-family: 'Share Tech Mono', monospace;
+            user-select: none; -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: none;
+            position: fixed;
+        }
+
+        /* ── Camera + Three.js canvas (used during the GAME screen) ── */
+        #cam {
+            position: fixed; inset: 0;
+            width: 100%; height: 100%;
+            object-fit: cover;
+            z-index: 0;
+            background: #000;
+            display: none;
+        }
+        #scene {
+            position: fixed; inset: 0;
+            z-index: 1;
+            pointer-events: none;
+            display: none;
+        }
+        body.in-game #cam, body.in-game #scene { display: block; }
+
+        /* ── Screens ── */
+        .screen {
+            position: fixed; inset: 0;
+            z-index: 50;
+            background: #0b0d10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 18px;
+            padding: 24px;
+            padding-top: max(24px, env(safe-area-inset-top));
+            padding-bottom: max(24px, env(safe-area-inset-bottom));
+            text-align: center;
+            overflow-y: auto;
+        }
+        .screen.hidden { display: none; }
+        body.in-game .screen:not(#screen-game) { display: none; }
+        #screen-game { z-index: 10; pointer-events: none; background: transparent; }
+        #screen-game .interactive,
+        #screen-game button { pointer-events: auto; }
+
+        .title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: clamp(28px, 8vw, 52px);
+            font-weight: 900;
+            color: #00ff88;
+            text-shadow: 0 0 30px rgba(0, 255, 136, 0.8);
+            letter-spacing: 4px;
+            line-height: 1.1;
+        }
+        .subtitle {
+            font-size: 11px;
+            letter-spacing: 5px;
+            color: rgba(0, 255, 136, 0.5);
+            text-transform: uppercase;
+            margin-top: 6px;
+        }
+        .h2 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            color: #00ff88;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        .box {
+            border: 1px solid rgba(0, 255, 136, 0.25);
+            border-radius: 6px;
+            padding: 16px 22px;
+            max-width: 380px;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.4);
+        }
+        .box + .box { margin-top: 8px; }
+
+        label {
+            display: block;
+            font-size: 10px;
+            letter-spacing: 2px;
+            color: rgba(0, 255, 136, 0.6);
+            text-transform: uppercase;
+            margin: 12px 0 6px;
+            text-align: left;
+        }
+        input[type="text"], input[type="number"] {
+            width: 100%;
+            background: #0b0d10;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            color: #d8e2dc;
+            padding: 12px 14px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 14px;
+            border-radius: 4px;
+        }
+        input:focus { outline: none; border-color: #00ff88; }
+        input.code {
+            text-transform: uppercase;
+            letter-spacing: 6px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .btn {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 14px; font-weight: 700;
+            letter-spacing: 3px;
+            color: #000;
+            background: #00ff88;
+            border: none;
+            border-radius: 3px;
+            padding: 14px 28px;
+            cursor: pointer;
+            text-transform: uppercase;
+            box-shadow: 0 0 24px rgba(0, 255, 136, 0.45);
+            transition: transform 0.08s;
+            min-height: 48px;
+            width: 100%;
+            max-width: 380px;
+        }
+        .btn:active { transform: scale(0.97); }
+        .btn[disabled] {
+            background: rgba(0, 255, 136, 0.18);
+            color: rgba(255, 255, 255, 0.4);
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+        .btn.secondary {
+            background: transparent;
+            color: #00ff88;
+            border: 1px solid #00ff88;
+            box-shadow: none;
+            padding: 12px 22px;
+            font-size: 12px;
+        }
+        .btn.danger {
+            background: transparent;
+            color: #ff4455;
+            border: 1px solid #ff4455;
+            box-shadow: none;
+        }
+
+        .row { display: flex; gap: 8px; width: 100%; max-width: 380px; }
+        .row > .btn { flex: 1; }
+
+        /* ── Lobby ── */
+        .code-display {
+            font-family: 'Orbitron', sans-serif;
+            font-size: clamp(36px, 12vw, 56px);
+            font-weight: 900;
+            color: #00ff88;
+            letter-spacing: 8px;
+            text-shadow: 0 0 24px rgba(0, 255, 136, 0.6);
+            margin: 6px 0;
+        }
+        .code-label {
+            font-size: 10px;
+            letter-spacing: 4px;
+            color: rgba(0, 255, 136, 0.5);
+            text-transform: uppercase;
+        }
+        .share-hint {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.5);
+            margin-top: 6px;
+        }
+        .player-list {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .player-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(0, 255, 136, 0.18);
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .player-row.host { border-color: rgba(0, 255, 136, 0.55); }
+        .player-row .nick { color: #d8e2dc; }
+        .player-row .badge {
+            font-size: 9px;
+            letter-spacing: 2px;
+            color: #00ff88;
+            background: rgba(0, 255, 136, 0.12);
+            padding: 3px 8px;
+            border-radius: 2px;
+            text-transform: uppercase;
+        }
+        .player-row.you .nick::after { content: ' (você)'; color: rgba(0, 255, 136, 0.6); font-size: 11px; }
+
+        .lobby-count {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.55);
+            letter-spacing: 2px;
+            margin: 8px 0 4px;
+        }
+
+        /* ── Status / errors ── */
+        .status-bar {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            padding: 6px 14px;
+            font-size: 10px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 99;
+            color: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(4px);
+        }
+        .status-bar .dot {
+            display: inline-block;
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: #ff4455;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+        .status-bar.online .dot { background: #00ff88; box-shadow: 0 0 6px #00ff88; }
+        .status-bar.hidden { display: none; }
+
+        .err-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 22px;
+            color: #ff4455;
+            letter-spacing: 3px;
+            text-shadow: 0 0 20px rgba(255, 68, 85, 0.5);
+        }
+        .err-msg {
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 13px;
+            line-height: 1.7;
+            max-width: 380px;
+        }
+        .err-msg b { color: #00ff88; }
+        .err-msg code {
+            background: rgba(0, 255, 136, 0.1);
+            padding: 1px 6px;
+            border-radius: 3px;
+            color: #00ff88;
+            font-family: 'Share Tech Mono', monospace;
+        }
+
+        /* ── In-game HUD (existing single-player UI) ── */
+        #ui {
+            position: fixed; inset: 0;
+            z-index: 10;
+            pointer-events: none;
+        }
+        #ui button, #ui .interactive { pointer-events: auto; }
+
+        #hud {
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            padding: 14px 14px;
+            padding-top: max(38px, env(safe-area-inset-top));
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        .hud-panel {
+            background: rgba(0, 0, 0, 0.55);
+            border: 1px solid rgba(0, 255, 136, 0.4);
+            border-radius: 4px;
+            padding: 6px 12px;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            min-width: 60px;
+        }
+        .hud-label {
+            font-size: 9px;
+            letter-spacing: 2px;
+            color: rgba(0, 255, 136, 0.65);
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }
+        .hud-value {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 22px; font-weight: 900;
+            color: #00ff88; line-height: 1;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.7);
+        }
+        .hud-value.warning { color: #ffaa00; text-shadow: 0 0 10px rgba(255, 170, 0, 0.7); }
+        .hud-value.danger  { color: #ff4455; text-shadow: 0 0 10px rgba(255, 68, 85, 0.7); animation: blink 0.5s infinite; }
+        @keyframes blink { 50% { opacity: 0.4; } }
+
+        #crosshair {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 36px; height: 36px;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(0, 255, 136, 0.9);
+            box-shadow: 0 0 6px rgba(0, 255, 136, 0.6);
+        }
+        #crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
+        #crosshair::after  { height: 2px; width: 100%; top: 50%; transform: translateY(-50%); }
+        #crosshair .dot {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 4px; height: 4px;
+            border-radius: 50%;
+            background: #00ff88;
+            box-shadow: 0 0 10px #00ff88;
+        }
+        #crosshair.locked::before,
+        #crosshair.locked::after { background: #ff4455; box-shadow: 0 0 8px #ff4455; }
+        #crosshair.locked .dot { background: #ff4455; box-shadow: 0 0 10px #ff4455; }
+
+        #banner {
+            position: absolute;
+            top: 86px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(0, 255, 136, 0.4);
+            border-radius: 4px;
+            padding: 10px 16px;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            font-size: 12px;
+            letter-spacing: 2px;
+            color: rgba(255, 255, 255, 0.92);
+            text-align: center;
+            max-width: 88%;
+            text-transform: uppercase;
+        }
+        #banner b { color: #00ff88; }
+
+        #phase-actions {
+            position: absolute;
+            bottom: 130px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex; gap: 10px; flex-wrap: wrap;
+            justify-content: center;
+            width: 90%;
+            max-width: 380px;
+        }
+        .btn-phase {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 13px; font-weight: 700;
+            letter-spacing: 3px;
+            color: #000;
+            background: #00ff88;
+            border: none;
+            border-radius: 3px;
+            padding: 12px 22px;
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .btn-phase:active { transform: scale(0.94); }
+        .btn-phase[disabled] {
+            background: rgba(0, 255, 136, 0.2);
+            color: rgba(255, 255, 255, 0.4);
+            box-shadow: none;
+        }
+        .btn-phase.secondary {
+            background: transparent;
+            color: #00ff88;
+            border: 1px solid #00ff88;
+            box-shadow: none;
+        }
+
+        #shoot-row {
+            position: absolute;
+            bottom: max(22px, env(safe-area-inset-bottom));
+            left: 0; right: 0;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 26px;
+        }
+        .shoot-btn {
+            width: 78px; height: 78px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, rgba(255, 100, 110, 0.95), rgba(140, 20, 30, 0.95));
+            border: 3px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 0 0 24px rgba(255, 68, 85, 0.6), inset 0 0 12px rgba(0, 0, 0, 0.4);
+            color: #fff;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 11px; font-weight: 900;
+            letter-spacing: 2px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.05s, box-shadow 0.1s;
+        }
+        .shoot-btn:active {
+            transform: scale(0.92);
+            box-shadow: 0 0 36px rgba(255, 68, 85, 0.95), inset 0 0 20px rgba(0, 0, 0, 0.6);
+        }
+
+        #combo {
+            position: absolute;
+            top: 40%; left: 50%;
+            transform: translate(-50%, -50%);
+            opacity: 0;
+            text-align: center;
+        }
+        #combo.show { animation: comboPop 0.7s ease-out forwards; }
+        @keyframes comboPop {
+            0% { transform: translate(-50%, -30%) scale(0.5); opacity: 1; }
+            40% { transform: translate(-50%, -50%) scale(1.25); opacity: 1; }
+            100% { transform: translate(-50%, -85%) scale(0.85); opacity: 0; }
+        }
+        .combo-pts {
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 900; font-size: 42px;
+            color: #fff;
+            text-shadow: 0 0 20px #00ff88, 0 0 40px #00ff88;
+        }
+        .combo-lbl {
+            font-size: 11px; letter-spacing: 5px;
+            color: #00ff88; text-transform: uppercase;
+        }
+
+        #flash {
+            position: absolute; inset: 0;
+            background: rgba(0, 255, 136, 0.18);
+            opacity: 0;
+            transition: opacity 0.08s;
+        }
+        #flash.on { opacity: 1; }
+
+        #scanlines {
+            position: absolute; inset: 0;
+            background: repeating-linear-gradient(0deg,
+                transparent, transparent 2px,
+                rgba(0, 0, 0, 0.05) 2px, rgba(0, 0, 0, 0.05) 4px);
+        }
+
+        #radar {
+            position: absolute;
+            bottom: 130px;
+            right: 16px;
+            width: 80px; height: 80px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.55);
+            border: 1px solid rgba(0, 255, 136, 0.5);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            display: none;
+        }
+        #radar svg { width: 100%; height: 100%; }
+        .radar-blip { fill: #00ff88; }
+        .radar-blip.rare { fill: #ff4455; }
+        .radar-fov { stroke: rgba(0, 255, 136, 0.5); stroke-width: 1; fill: rgba(0, 255, 136, 0.1); }
+        .radar-center { fill: #00ff88; }
+
+        /* Quit-to-lobby button during game */
+        #btn-quit-game {
+            position: absolute;
+            top: max(14px, env(safe-area-inset-top));
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.55);
+            border: 1px solid rgba(255, 68, 85, 0.45);
+            color: #ff4455;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            padding: 6px 12px;
+            border-radius: 3px;
+            cursor: pointer;
+            backdrop-filter: blur(6px);
+            z-index: 12;
+        }
+    </style>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.169.0/build/three.module.js"
+        }
+    }
+    </script>
+</head>
+
+<body>
+    <!-- Connection indicator -->
+    <div class="status-bar hidden" id="status-bar">
+        <span class="dot"></span><span id="status-text">desconectado</span>
+    </div>
+
+    <!-- Camera background + Three.js canvas (shown during GAME) -->
+    <video id="cam" autoplay playsinline muted webkit-playsinline></video>
+    <canvas id="scene"></canvas>
+
+    <!-- ───── SCREEN: HOME ───── -->
+    <div id="screen-home" class="screen">
+        <div>
+            <div class="title">Esferas da<br>Taísa RA</div>
+            <div class="subtitle">multiplayer · realidade aumentada</div>
+        </div>
+        <div class="box">
+            <label>Seu apelido</label>
+            <input type="text" id="home-nick" placeholder="Ex.: Paulo" maxlength="20" autocomplete="off">
+        </div>
+        <button class="btn" id="btn-go-create">Criar sala</button>
+        <button class="btn secondary" id="btn-go-join">Entrar em sala</button>
+    </div>
+
+    <!-- ───── SCREEN: CREATE ───── -->
+    <div id="screen-create" class="screen hidden">
+        <div class="h2">Criar sala</div>
+        <div class="box">
+            <label>Máximo de jogadores (2–32)</label>
+            <input type="number" id="create-max" min="2" max="32" value="4">
+            <label>Apelido do host</label>
+            <input type="text" id="create-nick" maxlength="20" disabled>
+        </div>
+        <button class="btn" id="btn-create-confirm">Criar e entrar</button>
+        <button class="btn secondary" id="btn-create-back">Voltar</button>
+    </div>
+
+    <!-- ───── SCREEN: JOIN ───── -->
+    <div id="screen-join" class="screen hidden">
+        <div class="h2">Entrar em sala</div>
+        <div class="box">
+            <label>Código da sala</label>
+            <input type="text" id="join-code" class="code" maxlength="6" placeholder="ABCD23" autocapitalize="characters" autocomplete="off">
+            <label>Seu apelido</label>
+            <input type="text" id="join-nick" maxlength="20" disabled>
+        </div>
+        <button class="btn" id="btn-join-confirm">Entrar</button>
+        <button class="btn secondary" id="btn-join-back">Voltar</button>
+    </div>
+
+    <!-- ───── SCREEN: LOBBY ───── -->
+    <div id="screen-lobby" class="screen hidden">
+        <div>
+            <div class="code-label">Código da sala</div>
+            <div class="code-display" id="lobby-code">— — — — — —</div>
+            <div class="share-hint">compartilhe esse código com quem vai jogar</div>
+        </div>
+        <div class="box" style="max-width: 420px;">
+            <div class="lobby-count">
+                Jogadores: <span id="lobby-count">0 / 0</span>
+            </div>
+            <div class="player-list" id="lobby-players"></div>
+        </div>
+        <button class="btn" id="btn-lobby-start">Iniciar meu jogo</button>
+        <button class="btn danger" id="btn-lobby-leave">Sair da sala</button>
+    </div>
+
+    <!-- ───── SCREEN: GAME (in-game HUD) ───── -->
+    <div id="screen-game" class="screen hidden">
+        <div id="ui">
+            <div id="scanlines"></div>
+            <div id="flash"></div>
+
+            <button id="btn-quit-game">× sala</button>
+
+            <div id="hud" style="display:none;">
+                <div class="hud-panel">
+                    <div class="hud-label">Pontos</div>
+                    <div class="hud-value" id="score">000</div>
+                </div>
+                <div class="hud-panel" style="text-align:center;">
+                    <div class="hud-label">Tempo</div>
+                    <div class="hud-value" id="timer">30</div>
+                </div>
+                <div class="hud-panel" style="text-align:right;">
+                    <div class="hud-label">Acertos</div>
+                    <div class="hud-value" id="hits">0</div>
+                </div>
+            </div>
+
+            <div id="banner" style="display:none;"></div>
+            <div id="crosshair" style="display:none;"><div class="dot"></div></div>
+
+            <div id="combo">
+                <div class="combo-pts" id="combo-pts">+10</div>
+                <div class="combo-lbl" id="combo-lbl">HIT!</div>
+            </div>
+
+            <div id="radar">
+                <svg viewBox="-50 -50 100 100">
+                    <circle cx="0" cy="0" r="48" fill="none" stroke="rgba(0,255,136,0.3)" stroke-width="0.5"></circle>
+                    <circle cx="0" cy="0" r="24" fill="none" stroke="rgba(0,255,136,0.2)" stroke-width="0.5"></circle>
+                    <g id="radar-blips"></g>
+                    <polygon class="radar-fov" id="radar-fov" points="0,0 -10,-40 10,-40"></polygon>
+                    <circle class="radar-center" cx="0" cy="0" r="2"></circle>
+                </svg>
+            </div>
+
+            <div id="phase-actions" style="display:none;"></div>
+
+            <div id="shoot-row" style="display:none;">
+                <button class="shoot-btn interactive" id="shoot-l">FIRE</button>
+                <button class="shoot-btn interactive" id="shoot-r">FIRE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ───── SCREEN: RANKING (post-game) ───── -->
+    <div id="screen-ranking" class="screen hidden">
+        <div class="title" style="color:#ff4455; text-shadow: 0 0 30px rgba(255,68,85,0.8);">GAME OVER</div>
+        <div class="subtitle" id="rank-reason">—</div>
+        <div class="box" style="max-width: 420px;">
+            <div class="player-list" id="rank-list"></div>
+        </div>
+        <button class="btn" id="btn-rank-again">Nova partida</button>
+        <button class="btn secondary" id="btn-rank-lobby">Voltar pra sala</button>
+    </div>
+
+    <!-- ───── SCREEN: ERROR ───── -->
+    <div id="screen-error" class="screen hidden">
+        <div class="err-title">ALGO DEU ERRADO</div>
+        <div class="err-msg" id="err-msg"></div>
+        <button class="btn" id="btn-err-retry">Tentar novamente</button>
+    </div>
+
+    <!-- Socket.IO client (served by the server itself) -->
+    <script src="/socket.io/socket.io.js"></script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // ════════════════════════════════════════════════════════
+        //  APP STATE & CONSTANTS
+        // ════════════════════════════════════════════════════════
+        const $ = id => document.getElementById(id);
+        const SCREENS = ['home', 'create', 'join', 'lobby', 'game', 'ranking', 'error'];
+
+        const PHASES = {
+            IDLE:      'idle',
+            CALIBRATE: 'calibrate',
+            PLACE:     'place',
+            WATCH:     'watch',
+            PLAY:      'play',
+            OVER:      'over',
+        };
+
+        const PLACE_DISTANCE = 2.5;
+        const SHOT_COOLDOWN_MS = 220;
+
+        const SPHERE_TYPE_VISUAL = {
+            normal: { color: 0x00ddff, emissive: 0x004466, radius: 0.18, label: 'NORMAL' },
+            fast:   { color: 0x00ff88, emissive: 0x004422, radius: 0.15, label: 'RÁPIDA' },
+            rare:   { color: 0xff4455, emissive: 0x440011, radius: 0.13, label: 'RARA!' },
+        };
+        let POINTS = { normal: 10, fast: 20, rare: 50 };
+
+        const app = {
+            socket: null,
+            nickname: localStorage.getItem('silviaNick') || '',
+            currentScreen: 'home',
+            room: null,
+            you: null,
+            spheres: new Map(),  // sphereId -> { mesh, type, alive }
+            scores: {},
+            timer: { intervalId: null, secondsLeft: 0 },
+        };
+
+        const gameState = {
+            phase: PHASES.IDLE,
+            orient: { alpha: 0, beta: 0, gamma: 0 },
+            orientReady: false,
+            orientBaseAlpha: null,
+            lastShotAt: 0,
+        };
+
+        function pickRandomType() {
+            const r = Math.random();
+            if (r < 0.55) return 'normal';
+            if (r < 0.85) return 'fast';
+            return 'rare';
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+            }[c]));
+        }
+
+        // ════════════════════════════════════════════════════════
+        //  SCREEN MANAGER & STATUS
+        // ════════════════════════════════════════════════════════
+        function showScreen(name) {
+            for (const s of SCREENS) {
+                $(`screen-${s}`).classList.toggle('hidden', s !== name);
+            }
+            document.body.classList.toggle('in-game', name === 'game');
+            app.currentScreen = name;
+        }
+
+        function setStatus(text, online) {
+            const bar = $('status-bar');
+            $('status-text').textContent = text;
+            bar.classList.toggle('online', !!online);
+            bar.classList.remove('hidden');
+        }
+
+        function showAppError(msg) {
+            $('err-msg').innerHTML = msg;
+            showScreen('error');
+        }
+
+        // ════════════════════════════════════════════════════════
+        //  SOCKET.IO + EVENT WIRING
+        // ════════════════════════════════════════════════════════
+        function emitAck(event, payload) {
+            return new Promise(resolve => app.socket.emit(event, payload, resolve));
+        }
+
+        function connectSocket() {
+            if (app.socket) return;
+            app.socket = io({ transports: ['websocket', 'polling'] });
+
+            app.socket.on('connect', () => setStatus('online · ' + app.socket.id.slice(0, 6), true));
+            app.socket.on('disconnect', (reason) => {
+                setStatus('desconectado: ' + reason, false);
+                if (app.room && app.currentScreen !== 'game') {
+                    app.room = null; app.you = null;
+                    showScreen('home');
+                }
+            });
+            app.socket.on('connect_error', err => {
+                setStatus('erro de conexão', false);
+                console.error('[socket] connect_error', err.message);
+            });
+
+            // ── Room (Fase 1) ──
+            app.socket.on('room:player_joined', ({ room }) => {
+                if (room && app.room && room.code === app.room.code) {
+                    app.room = room;
+                    if (app.currentScreen === 'lobby') renderLobby();
+                }
+            });
+            app.socket.on('room:player_left', ({ room, newHostNickname }) => {
+                if (room && app.room && room.code === app.room.code) {
+                    app.room = room;
+                    if (newHostNickname && app.you?.nickname === newHostNickname) {
+                        app.you.isHost = true;
+                    }
+                    if (app.currentScreen === 'lobby') renderLobby();
+                }
+            });
+
+            // ── Game (Fase 3) ──
+            app.socket.on('game:started', ({ scoringRules }) => {
+                if (scoringRules) POINTS = { ...POINTS, ...scoringRules };
+                beginGameSession();
+            });
+            app.socket.on('sphere:placed', sphere => {
+                createSphereVisual(sphere);
+                if (gameState.phase === PHASES.PLACE || gameState.phase === PHASES.WATCH) {
+                    updatePlaceUI();
+                }
+            });
+            app.socket.on('sphere:cleared', () => {
+                for (const [, s] of app.spheres) removeSphereMesh(s.mesh);
+                app.spheres.clear();
+                if (gameState.phase === PHASES.PLACE || gameState.phase === PHASES.WATCH) {
+                    updatePlaceUI();
+                }
+            });
+            app.socket.on('game:play_started', ({ durationSec }) => {
+                enterPhase(PHASES.PLAY, { durationSec });
+            });
+            app.socket.on('sphere:destroyed', ({ id, hitBy, points, totals }) => {
+                const s = app.spheres.get(id);
+                if (s && s.alive) {
+                    s.alive = false;
+                    animateSphereDestruction(s);
+                }
+                app.scores = totals || {};
+                showHitEffect(hitBy, points);
+                updateHud();
+            });
+            app.socket.on('game:ended', ({ ranking, reason }) => {
+                showServerRanking(ranking, reason);
+            });
+        }
+
+        // ════════════════════════════════════════════════════════
+        //  HOME / CREATE / JOIN
+        // ════════════════════════════════════════════════════════
+        function persistNickname(n) {
+            app.nickname = n;
+            localStorage.setItem('silviaNick', n);
+        }
+
+        async function createRoom({ hostNickname, maxPlayers }) {
+            const res = await fetch('/api/rooms', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hostNickname, maxPlayers }),
+            });
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                throw new Error('Erro ao criar sala: ' + (body.error || res.status));
+            }
+            return await res.json();
+        }
+
+        const JOIN_ERROR_MSG = {
+            invalid_code:     'Código inválido.',
+            not_found:        'Sala não encontrada.',
+            ended:            'Essa sala já encerrou.',
+            nickname_taken:   'Esse apelido já está em uso na sala.',
+            full:             'Sala cheia.',
+            invalid_nickname: 'Apelido inválido.',
+            server_error:     'Erro no servidor.',
+        };
+
+        async function socketJoin({ code, nickname }) {
+            const ack = await emitAck('room:join', { code, nickname });
+            if (!ack?.ok) {
+                throw new Error(JOIN_ERROR_MSG[ack?.error] || ack?.error || 'unknown');
+            }
+            return ack;
+        }
+        async function socketLeave() {
+            if (!app.socket?.connected) return;
+            await emitAck('room:leave', null);
+        }
+
+        $('home-nick').value = app.nickname;
+        $('btn-go-create').addEventListener('click', () => {
+            const n = $('home-nick').value.trim();
+            if (!n) return alert('Digite seu apelido primeiro.');
+            persistNickname(n);
+            $('create-nick').value = n;
+            showScreen('create');
+        });
+        $('btn-go-join').addEventListener('click', () => {
+            const n = $('home-nick').value.trim();
+            if (!n) return alert('Digite seu apelido primeiro.');
+            persistNickname(n);
+            $('join-nick').value = n;
+            showScreen('join');
+        });
+        $('btn-create-back').addEventListener('click', () => showScreen('home'));
+        $('btn-join-back').addEventListener('click', () => showScreen('home'));
+
+        $('btn-create-confirm').addEventListener('click', async () => {
+            const max = Number($('create-max').value);
+            const nick = app.nickname;
+            if (!Number.isFinite(max) || max < 2 || max > 32) {
+                return alert('Máximo de jogadores deve ser entre 2 e 32.');
+            }
+            const btn = $('btn-create-confirm');
+            btn.disabled = true; btn.textContent = 'Criando...';
+            try {
+                const room = await createRoom({ hostNickname: nick, maxPlayers: max });
+                const ack = await socketJoin({ code: room.code, nickname: nick });
+                app.room = ack.room; app.you = ack.you;
+                renderLobby();
+                showScreen('lobby');
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                btn.disabled = false; btn.textContent = 'Criar e entrar';
+            }
+        });
+
+        $('btn-join-confirm').addEventListener('click', async () => {
+            const code = $('join-code').value.trim().toUpperCase();
+            const nick = app.nickname;
+            if (code.length !== 6) return alert('Código tem 6 caracteres.');
+            const btn = $('btn-join-confirm');
+            btn.disabled = true; btn.textContent = 'Entrando...';
+            try {
+                const ack = await socketJoin({ code, nickname: nick });
+                app.room = ack.room; app.you = ack.you;
+                renderLobby();
+                showScreen('lobby');
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                btn.disabled = false; btn.textContent = 'Entrar';
+            }
+        });
+
+        $('join-code').addEventListener('input', (e) => {
+            e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        });
+
+        // ════════════════════════════════════════════════════════
+        //  LOBBY
+        // ════════════════════════════════════════════════════════
+        function renderLobby() {
+            const r = app.room;
+            if (!r) return;
+            $('lobby-code').textContent = r.code;
+            $('lobby-count').textContent = `${r.playerCount} / ${r.maxPlayers}`;
+
+            const list = $('lobby-players');
+            list.innerHTML = '';
+            for (const p of (r.players || [])) {
+                const el = document.createElement('div');
+                let cls = 'player-row';
+                if (p.isHost) cls += ' host';
+                if (app.you && p.nickname === app.you.nickname) cls += ' you';
+                el.className = cls;
+                el.innerHTML = `<span class="nick">${escapeHtml(p.nickname)}</span>` +
+                    (p.isHost ? '<span class="badge">host</span>' : '');
+                list.appendChild(el);
+            }
+
+            const startBtn = $('btn-lobby-start');
+            if (app.you?.isHost) {
+                startBtn.textContent = 'INICIAR PARTIDA';
+                startBtn.disabled = false;
+                startBtn.classList.remove('secondary');
+            } else {
+                startBtn.textContent = 'Aguardando host iniciar...';
+                startBtn.disabled = true;
+                startBtn.classList.add('secondary');
+            }
+        }
+
+        $('btn-lobby-leave').addEventListener('click', async () => {
+            await socketLeave();
+            app.room = null; app.you = null;
+            stopGameMidway();
+            stopCamera();
+            showScreen('home');
+        });
+
+        $('btn-lobby-start').addEventListener('click', async () => {
+            if (!app.you?.isHost) return;
+            const ack = await emitAck('game:start');
+            if (!ack.ok) alert('Não foi possível iniciar a partida: ' + ack.error);
+            // game:started broadcast handles transitions
+        });
+
+        $('btn-quit-game').addEventListener('click', () => {
+            stopGameMidway();
+            if (app.room) { renderLobby(); showScreen('lobby'); }
+            else showScreen('home');
+        });
+
+        $('btn-rank-lobby').addEventListener('click', () => {
+            stopGameMidway();
+            if (app.room) { renderLobby(); showScreen('lobby'); }
+            else showScreen('home');
+        });
+
+        $('btn-rank-again').addEventListener('click', async () => {
+            if (app.you?.isHost) {
+                const ack = await emitAck('game:start');
+                if (!ack.ok) alert('Erro: ' + ack.error);
+            } else {
+                renderLobby();
+                showScreen('lobby');
+            }
+        });
+
+        $('btn-err-retry').addEventListener('click', () => {
+            showScreen(app.room ? 'lobby' : 'home');
+        });
+
+        // ════════════════════════════════════════════════════════
+        //  THREE.JS SETUP
+        // ════════════════════════════════════════════════════════
+        const cam = $('cam');
+        const sceneCanvas = $('scene');
+        const hud = $('hud');
+        const banner = $('banner');
+        const crosshair = $('crosshair');
+        const phaseActions = $('phase-actions');
+        const shootRow = $('shoot-row');
+        const radar = $('radar');
+        const radarBlips = $('radar-blips');
+        const radarFov = $('radar-fov');
+        const scoreEl = $('score');
+        const timerEl = $('timer');
+        const hitsEl = $('hits');
+        const flash = $('flash');
+        const combo = $('combo');
+        const comboPts = $('combo-pts');
+        const comboLbl = $('combo-lbl');
+
+        const scene = new THREE.Scene();
+        const camera3 = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.01, 100);
+        const renderer = new THREE.WebGLRenderer({ canvas: sceneCanvas, antialias: true, alpha: true });
+        renderer.setPixelRatio(devicePixelRatio);
+        renderer.setSize(innerWidth, innerHeight);
+        renderer.setClearColor(0x000000, 0);
+
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x444466, 1.6));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(0.5, 1, 0.3);
+        scene.add(dirLight);
+
+        const reticle = new THREE.Mesh(
+            new THREE.RingGeometry(0.08, 0.1, 32),
+            new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
+        );
+        reticle.visible = false;
+        scene.add(reticle);
+        const reticleDot = new THREE.Mesh(
+            new THREE.CircleGeometry(0.015, 16),
+            new THREE.MeshBasicMaterial({ color: 0x00ff88 })
+        );
+        reticle.add(reticleDot);
+
+        function onResize() {
+            camera3.aspect = innerWidth / innerHeight;
+            camera3.updateProjectionMatrix();
+            renderer.setSize(innerWidth, innerHeight);
+        }
+        addEventListener('resize', onResize);
+        addEventListener('orientationchange', () => setTimeout(onResize, 200));
+
+        // ════════════════════════════════════════════════════════
+        //  DEVICE ORIENTATION + CAMERA
+        // ════════════════════════════════════════════════════════
+        const zee = new THREE.Vector3(0, 0, 1);
+        const q1Helper = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+        const eulerHelper = new THREE.Euler();
+
+        function setObjectQuaternion(quaternion, alpha, beta, gamma, orient) {
+            eulerHelper.set(beta, alpha, -gamma, 'YXZ');
+            quaternion.setFromEuler(eulerHelper);
+            quaternion.multiply(q1Helper);
+            quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(zee, -orient));
+        }
+
+        function updateCameraOrientation() {
+            if (!gameState.orientReady) return;
+            const screenOrient = (screen.orientation && screen.orientation.angle != null)
+                ? screen.orientation.angle
+                : (window.orientation || 0);
+            const orient = THREE.MathUtils.degToRad(screenOrient);
+            let alpha = THREE.MathUtils.degToRad(gameState.orient.alpha || 0);
+            const beta  = THREE.MathUtils.degToRad(gameState.orient.beta || 0);
+            const gamma = THREE.MathUtils.degToRad(gameState.orient.gamma || 0);
+            if (gameState.orientBaseAlpha != null) {
+                alpha -= THREE.MathUtils.degToRad(gameState.orientBaseAlpha);
+            }
+            setObjectQuaternion(camera3.quaternion, alpha, beta, gamma, orient);
+        }
+
+        function onDeviceOrientation(ev) {
+            if (ev.alpha == null) return;
+            gameState.orient.alpha = ev.alpha;
+            gameState.orient.beta = ev.beta;
+            gameState.orient.gamma = ev.gamma;
+            gameState.orientReady = true;
+        }
+
+        async function requestOrientationPermission() {
+            if (typeof DeviceOrientationEvent !== 'undefined' &&
+                typeof DeviceOrientationEvent.requestPermission === 'function') {
+                const res = await DeviceOrientationEvent.requestPermission();
+                if (res !== 'granted') {
+                    throw new Error('Permissão de orientação negada. Habilite "Movimento e Orientação" nas configurações do Safari.');
+                }
+            }
+            if ('ondeviceorientationabsolute' in window) {
+                window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
+            }
+            window.addEventListener('deviceorientation', onDeviceOrientation, true);
+        }
+
+        let mediaStream = null;
+        async function startCamera() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error('Seu navegador não suporta câmera (getUserMedia).');
+            }
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false,
+                });
+            } catch (e) {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            }
+            cam.srcObject = mediaStream;
+            await new Promise((resolve, reject) => {
+                cam.onloadedmetadata = () => cam.play().then(resolve).catch(reject);
+                setTimeout(() => reject(new Error('A câmera demorou para responder.')), 10000);
+            });
+        }
+
+        function stopCamera() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(t => t.stop());
+                mediaStream = null;
+            }
+            cam.srcObject = null;
+        }
+
+        // ════════════════════════════════════════════════════════
+        //  SPHERES (rendered from server broadcasts only)
+        // ════════════════════════════════════════════════════════
+        function createSphereVisual({ id, type, x, y, z }) {
+            if (app.spheres.has(id)) return;
+            const visual = SPHERE_TYPE_VISUAL[type] || SPHERE_TYPE_VISUAL.normal;
+            const geom = new THREE.SphereGeometry(visual.radius, 28, 18);
+            const mat = new THREE.MeshStandardMaterial({
+                color: visual.color, emissive: visual.emissive,
+                emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.4,
+            });
+            const mesh = new THREE.Mesh(geom, mat);
+            mesh.position.set(x, y, z);
+
+            const ring = new THREE.Mesh(
+                new THREE.RingGeometry(visual.radius * 1.3, visual.radius * 1.5, 24),
+                new THREE.MeshBasicMaterial({ color: visual.color, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
+            );
+            ring.rotation.y = Math.PI;
+            mesh.add(ring);
+
+            mesh.userData.type = type;
+            mesh.userData.alive = true;
+            mesh.userData.baseY = y;
+            mesh.userData.bobPhase = Math.random() * Math.PI * 2;
+            mesh.userData.popStart = performance.now();
+            mesh.scale.setScalar(0.01);
+            scene.add(mesh);
+
+            app.spheres.set(id, { mesh, type, alive: true });
+            updateRadar();
+        }
+
+        function animateSphereDestruction(sphereObj) {
+            sphereObj.mesh.userData.alive = false;
+            sphereObj.mesh.userData.outStart = performance.now();
+            setTimeout(() => removeSphereMesh(sphereObj.mesh), 280);
+        }
+
+        function removeSphereMesh(mesh) {
+            scene.remove(mesh);
+            mesh.traverse(o => {
+                if (o.geometry) o.geometry.dispose();
+                if (o.material) o.material.dispose();
+            });
+            for (const [id, s] of app.spheres) {
+                if (s.mesh === mesh) { app.spheres.delete(id); break; }
+            }
+            updateRadar();
+        }
+
+        // ════════════════════════════════════════════════════════
+        //  SHOOTING (client raycasts, server validates)
+        // ════════════════════════════════════════════════════════
+        const raycaster = new THREE.Raycaster();
+        const camForward = new THREE.Vector3();
+
+        function rayHitSphereId() {
+            camForward.set(0, 0, -1).applyQuaternion(camera3.quaternion);
+            raycaster.set(camera3.position, camForward);
+            raycaster.far = 50;
+            const targets = [];
+            for (const [, s] of app.spheres) if (s.alive) targets.push(s.mesh);
+            const hits = raycaster.intersectObjects(targets, false);
+            if (hits.length === 0) return null;
+            const hitMesh = hits[0].object;
+            for (const [id, s] of app.spheres) if (s.mesh === hitMesh) return id;
+            return null;
+        }
+
+        async function shoot() {
+            if (gameState.phase !== PHASES.PLAY) return;
+            const now = performance.now();
+            if (now - gameState.lastShotAt < SHOT_COOLDOWN_MS) return;
+            gameState.lastShotAt = now;
+
+            flash.classList.add('on');
+            setTimeout(() => flash.classList.remove('on'), 80);
+            if (navigator.vibrate) navigator.vibrate(28);
+
+            const id = rayHitSphereId();
+            if (!id) return;
+            const ack = await emitAck('sphere:shoot', { id });
+            if (!ack?.ok && ack?.error !== 'already_destroyed') {
+                console.warn('[sphere:shoot] rejected:', ack?.error);
+            }
+            // Destruction visual is driven by the sphere:destroyed broadcast
+        }
+
+        function updateCrosshairLock() {
+            if (gameState.phase !== PHASES.PLAY) {
+                crosshair.classList.remove('locked');
+                return;
+            }
+            crosshair.classList.toggle('locked', !!rayHitSphereId());
+        }
+
+        function updateRadar() {
+            radarBlips.innerHTML = '';
+            const camYaw = (() => {
+                const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera3.quaternion);
+                return Math.atan2(fwd.x, -fwd.z);
+            })();
+            radarFov.setAttribute('transform', `rotate(${THREE.MathUtils.radToDeg(camYaw)})`);
+
+            for (const [, s] of app.spheres) {
+                if (!s.alive) continue;
+                const dx = s.mesh.position.x;
+                const dz = s.mesh.position.z;
+                const scale = 40 / 3;
+                const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                c.setAttribute('cx', dx * scale);
+                c.setAttribute('cy', dz * scale);
+                c.setAttribute('r', 2.5);
+                c.setAttribute('class', 'radar-blip' + (s.type === 'rare' ? ' rare' : ''));
+                radarBlips.appendChild(c);
+            }
+        }
+
+        // ════════════════════════════════════════════════════════
+        //  PHASES
+        // ════════════════════════════════════════════════════════
+        function mkBtn(label, variant, onClick) {
+            const b = document.createElement('button');
+            b.className = 'btn-phase interactive' + (variant === 'secondary' ? ' secondary' : '');
+            b.textContent = label;
+            b.addEventListener('click', onClick);
+            return b;
+        }
+
+        function enterPhase(p, ctx) {
+            gameState.phase = p;
+            hud.style.display = 'none';
+            banner.style.display = 'none';
+            crosshair.style.display = 'none';
+            phaseActions.style.display = 'none';
+            shootRow.style.display = 'none';
+            radar.style.display = 'none';
+            reticle.visible = false;
+
+            if (p === PHASES.CALIBRATE) {
+                banner.style.display = 'block';
+                banner.innerHTML = '<b>CALIBRAR</b><br>Aponte a câmera para o marcador QR e toque CALIBRAR';
+                phaseActions.style.display = 'flex';
+                phaseActions.innerHTML = '';
+                phaseActions.appendChild(mkBtn('CALIBRAR', '', onCalibrateTap));
+            }
+            else if (p === PHASES.PLACE) {
+                crosshair.style.display = 'block';
+                banner.style.display = 'block';
+                reticle.visible = true;
+                radar.style.display = 'block';
+                phaseActions.style.display = 'flex';
+                updatePlaceUI();
+            }
+            else if (p === PHASES.WATCH) {
+                banner.style.display = 'block';
+                radar.style.display = 'block';
+                updatePlaceUI();
+            }
+            else if (p === PHASES.PLAY) {
+                hud.style.display = 'flex';
+                crosshair.style.display = 'block';
+                shootRow.style.display = 'flex';
+                radar.style.display = 'block';
+                banner.style.display = 'block';
+                banner.innerHTML = '<b>FOGO!</b> Gire o celular para mirar';
+                setTimeout(() => { if (gameState.phase === PHASES.PLAY) banner.style.display = 'none'; }, 2200);
+                startTimer(ctx?.durationSec || 60);
+                updateHud();
+            }
+        }
+
+        async function onCalibrateTap() {
+            // This is the only place we request camera/orientation — it's a user gesture,
+            // which is required by iOS Safari for DeviceOrientationEvent.requestPermission().
+            try {
+                if (!mediaStream) await startCamera();
+                if (!gameState.orientReady) await requestOrientationPermission();
+                // Wait briefly for the first orientation event to arrive
+                if (!gameState.orientReady) {
+                    await new Promise(resolve => {
+                        const start = Date.now();
+                        const check = setInterval(() => {
+                            if (gameState.orientReady || Date.now() - start > 3000) {
+                                clearInterval(check); resolve();
+                            }
+                        }, 50);
+                    });
+                }
+            } catch (err) {
+                showGameError(err);
+                return;
+            }
+            if (!gameState.orientReady) {
+                showGameError(new Error('Giroscópio não disponível neste dispositivo.'));
+                return;
+            }
+            gameState.orientBaseAlpha = gameState.orient.alpha || 0;
+            enterPhase(app.you?.isHost ? PHASES.PLACE : PHASES.WATCH);
+        }
+
+        function updatePlaceUI() {
+            const count = app.spheres.size;
+            if (gameState.phase === PHASES.PLACE) {
+                banner.innerHTML = `<b>POSICIONE AS BOLINHAS</b><br>${count} colocadas — toque <b>POSICIONAR</b>`;
+                phaseActions.innerHTML = '';
+                phaseActions.appendChild(mkBtn('LIMPAR', 'secondary', async () => {
+                    await emitAck('sphere:clear');
+                }));
+                phaseActions.appendChild(mkBtn('POSICIONAR', '', async () => {
+                    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera3.quaternion);
+                    const pos = fwd.multiplyScalar(PLACE_DISTANCE);
+                    const ack = await emitAck('sphere:place', {
+                        type: pickRandomType(),
+                        x: pos.x, y: pos.y, z: pos.z,
+                    });
+                    if (!ack.ok && ack.error === 'max_spheres') alert('Limite de bolinhas atingido.');
+                }));
+                const startBtn = mkBtn(
+                    count >= 3 ? 'INICIAR DISPUTA' : 'MIN 3 BOLINHAS',
+                    '',
+                    async () => {
+                        const ack = await emitAck('game:play_start');
+                        if (!ack.ok) {
+                            const msgs = { not_enough_spheres: `Precisa de pelo menos ${ack.min || 3} bolinhas.` };
+                            alert(msgs[ack.error] || ack.error);
+                        }
+                    },
+                );
+                startBtn.disabled = count < 3;
+                phaseActions.appendChild(startBtn);
+            } else if (gameState.phase === PHASES.WATCH) {
+                banner.innerHTML = `<b>AGUARDE O HOST</b><br>${count} bolinhas posicionadas até agora...`;
+            }
+        }
+
+        function startTimer(durationSec) {
+            if (app.timer.intervalId) clearInterval(app.timer.intervalId);
+            app.timer.secondsLeft = durationSec;
+            timerEl.textContent = durationSec;
+            timerEl.className = 'hud-value';
+            app.timer.intervalId = setInterval(() => {
+                app.timer.secondsLeft--;
+                timerEl.textContent = app.timer.secondsLeft;
+                if (app.timer.secondsLeft <= 8) timerEl.className = 'hud-value danger';
+                else if (app.timer.secondsLeft <= 15) timerEl.className = 'hud-value warning';
+                if (app.timer.secondsLeft <= 0) {
+                    clearInterval(app.timer.intervalId);
+                    app.timer.intervalId = null;
+                    // Server emits game:ended; client just waits
+                }
+            }, 1000);
+        }
+
+        function updateHud() {
+            const me = app.you?.nickname;
+            const myScore = me ? (app.scores[me]?.score || 0) : 0;
+            const myHits  = me ? (app.scores[me]?.hits  || 0) : 0;
+            scoreEl.textContent = String(myScore).padStart(3, '0');
+            hitsEl.textContent = myHits;
+        }
+
+        function showHitEffect(hitBy, points) {
+            const isMe = hitBy === app.you?.nickname;
+            comboPts.textContent = '+' + points;
+            comboLbl.textContent = isMe ? 'VOCÊ!' : hitBy.toUpperCase();
+            combo.classList.remove('show');
+            void combo.offsetWidth;
+            combo.classList.add('show');
+            if (isMe && navigator.vibrate) navigator.vibrate([15, 20, 50]);
+        }
+
+        // ════════════════════════════════════════════════════════
+        //  GAME SESSION LIFECYCLE
+        // ════════════════════════════════════════════════════════
+        function beginGameSession() {
+            for (const [, s] of app.spheres) removeSphereMesh(s.mesh);
+            app.spheres.clear();
+            app.scores = {};
+            gameState.orientBaseAlpha = null;
+            gameState.lastShotAt = 0;
+            if (app.timer.intervalId) {
+                clearInterval(app.timer.intervalId);
+                app.timer.intervalId = null;
+            }
+            updateHud();
+            timerEl.textContent = '60';
+            timerEl.className = 'hud-value';
+            showScreen('game');
+            enterPhase(PHASES.CALIBRATE);
+        }
+
+        function stopGameMidway() {
+            if (app.timer.intervalId) {
+                clearInterval(app.timer.intervalId);
+                app.timer.intervalId = null;
+            }
+            for (const [, s] of app.spheres) removeSphereMesh(s.mesh);
+            app.spheres.clear();
+            gameState.phase = PHASES.IDLE;
+            hud.style.display = 'none';
+            banner.style.display = 'none';
+            crosshair.style.display = 'none';
+            phaseActions.style.display = 'none';
+            shootRow.style.display = 'none';
+            radar.style.display = 'none';
+            reticle.visible = false;
+        }
+
+        function showServerRanking(ranking, reason) {
+            if (app.timer.intervalId) {
+                clearInterval(app.timer.intervalId);
+                app.timer.intervalId = null;
+            }
+            const reasonText = reason === 'all_destroyed'
+                ? 'Todas as bolinhas foram destruídas!'
+                : 'Tempo esgotado!';
+            $('rank-reason').textContent = reasonText;
+
+            const me = app.you?.nickname;
+            const list = (ranking || []).map(r => {
+                const isMe = r.nickname === me;
+                const trophy = r.rank === 1 ? ' 🏆' : '';
+                return `<div class="player-row${isMe ? ' you' : ''}${r.rank === 1 ? ' host' : ''}">
+                    <span class="nick">#${r.rank} ${escapeHtml(r.nickname)}${trophy}</span>
+                    <span class="badge">${r.score} pts · ${r.hits} ac.</span>
+                </div>`;
+            }).join('');
+            $('rank-list').innerHTML = list || '<div style="color:#7a8a85; font-size:12px;">Sem pontuações registradas.</div>';
+
+            stopGameMidway();
+            showScreen('ranking');
+
+            // Update host-only "Nova partida" button label
+            const againBtn = $('btn-rank-again');
+            if (app.you?.isHost) {
+                againBtn.textContent = 'Nova partida';
+                againBtn.disabled = false;
+                againBtn.classList.remove('secondary');
+            } else {
+                againBtn.textContent = 'Aguardando host...';
+                againBtn.disabled = true;
+                againBtn.classList.add('secondary');
+            }
+        }
+
+        function showGameError(err) {
+            console.error('[Esferas RA]', err);
+            const isHttps = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+            let msg = (err && err.message) ? err.message : String(err);
+            let hint = '';
+            if (!isHttps) {
+                hint = '<br><br><b>Causa provável:</b> a página precisa rodar em <b>HTTPS</b>. Câmera e giroscópio só funcionam em <code>https://</code> ou <code>localhost</code>.';
+            } else if (err && err.name === 'NotAllowedError') {
+                hint = '<br><br><b>Causa provável:</b> permissão negada. Permita câmera (e em iOS também "Movimento e Orientação") nas configurações do navegador.';
+            } else if (err && err.name === 'NotFoundError') {
+                hint = '<br><br><b>Causa provável:</b> nenhuma câmera encontrada.';
+            } else if (err && err.name === 'NotReadableError') {
+                hint = '<br><br><b>Causa provável:</b> a câmera está ocupada por outro app.';
+            } else {
+                hint = '<br><br>Verifique HTTPS, permissões de câmera e movimento, e tente recarregar.';
+            }
+            showAppError('<b>Erro:</b> ' + msg + hint);
+        }
+
+        // ════════════════════════════════════════════════════════
+        //  RENDER LOOP
+        // ════════════════════════════════════════════════════════
+        function animate() {
+            requestAnimationFrame(animate);
+            updateCameraOrientation();
+
+            const now = performance.now();
+            const t = now * 0.001;
+
+            for (const [, s] of app.spheres) {
+                const m = s.mesh;
+                if (m.userData.popStart) {
+                    const k = Math.min(1, (now - m.userData.popStart) / 220);
+                    const eased = 1 - Math.pow(1 - k, 3);
+                    m.scale.setScalar(eased);
+                    if (k >= 1) delete m.userData.popStart;
+                }
+                if (m.userData.outStart) {
+                    const k = Math.min(1, (now - m.userData.outStart) / 260);
+                    m.scale.setScalar(1 + k * 1.6);
+                    m.children.forEach(c => { if (c.material) { c.material.transparent = true; c.material.opacity = Math.max(0, 1 - k); } });
+                    m.material.transparent = true;
+                    m.material.opacity = Math.max(0, 1 - k);
+                    continue;
+                }
+                if (m.userData.alive) {
+                    m.position.y = m.userData.baseY + Math.sin(t * 1.8 + m.userData.bobPhase) * 0.06;
+                    m.rotation.y += 0.012;
+                    m.children.forEach(c => c.lookAt(camera3.position));
+                }
+            }
+
+            if (gameState.phase === PHASES.PLACE) {
+                const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera3.quaternion);
+                reticle.position.copy(fwd.multiplyScalar(PLACE_DISTANCE));
+                reticle.lookAt(camera3.position);
+            }
+            updateCrosshairLock();
+            if (radar.style.display !== 'none') updateRadar();
+            renderer.render(scene, camera3);
+        }
+        animate();
+
+        // ════════════════════════════════════════════════════════
+        //  FIRE BUTTONS + MISC
+        // ════════════════════════════════════════════════════════
+        const onShootDown = (e) => { e.preventDefault(); shoot(); };
+        $('shoot-l').addEventListener('touchstart', onShootDown, { passive: false });
+        $('shoot-r').addEventListener('touchstart', onShootDown, { passive: false });
+        $('shoot-l').addEventListener('mousedown', onShootDown);
+        $('shoot-r').addEventListener('mousedown', onShootDown);
+
+        document.addEventListener('contextmenu', e => e.preventDefault());
+        document.addEventListener('gesturestart', e => e.preventDefault());
+
+        // ════════════════════════════════════════════════════════
+        //  BOOT
+        // ════════════════════════════════════════════════════════
+        connectSocket();
+        showScreen('home');
+    </script>
+</body>
+
+</html>

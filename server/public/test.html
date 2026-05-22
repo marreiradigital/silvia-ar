@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <title>Silvia · Test Client (Fase 1)</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+            background: #0b0d10;
+            color: #d8e2dc;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        h1 { color: #00ff88; font-size: 18px; margin: 0 0 4px; letter-spacing: 1px; }
+        .sub { font-size: 11px; color: #7a8a85; margin-bottom: 20px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 1100px; margin: 0 auto; }
+        @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+
+        .card {
+            background: #14181d;
+            border: 1px solid #2a3138;
+            border-radius: 6px;
+            padding: 16px;
+        }
+        .card h2 {
+            font-size: 13px;
+            color: #00ff88;
+            letter-spacing: 1px;
+            margin: 0 0 12px;
+            text-transform: uppercase;
+        }
+
+        label {
+            display: block;
+            font-size: 10px;
+            color: #7a8a85;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 8px 0 4px;
+        }
+        input {
+            width: 100%;
+            background: #0b0d10;
+            border: 1px solid #2a3138;
+            color: #d8e2dc;
+            padding: 8px 10px;
+            font-family: inherit;
+            font-size: 13px;
+            border-radius: 4px;
+        }
+        input:focus { outline: none; border-color: #00ff88; }
+
+        button {
+            margin-top: 10px;
+            background: #00ff88;
+            color: #000;
+            border: none;
+            padding: 10px 14px;
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            border-radius: 4px;
+            cursor: pointer;
+            text-transform: uppercase;
+        }
+        button.ghost { background: transparent; color: #00ff88; border: 1px solid #00ff88; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .row { display: flex; gap: 8px; }
+        .row > * { flex: 1; }
+
+        .room-info {
+            background: #0b0d10;
+            border: 1px solid #2a3138;
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 12px;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .room-info .k { color: #7a8a85; }
+        .room-info .v { color: #00ff88; }
+        .code {
+            font-size: 22px;
+            font-weight: 900;
+            color: #00ff88;
+            letter-spacing: 4px;
+            text-shadow: 0 0 16px rgba(0,255,136,0.4);
+        }
+
+        .players { margin-top: 12px; }
+        .player {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 10px;
+            background: #0b0d10;
+            border: 1px solid #2a3138;
+            border-radius: 3px;
+            margin-bottom: 4px;
+            font-size: 12px;
+        }
+        .player.host::after { content: '👑'; }
+
+        .log {
+            background: #0b0d10;
+            border: 1px solid #2a3138;
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 12px;
+            font-size: 11px;
+            line-height: 1.6;
+            max-height: 240px;
+            overflow-y: auto;
+            color: #7a8a85;
+        }
+        .log .ts { color: #4a5a55; }
+        .log .ev { color: #00ff88; }
+        .log .err { color: #ff4455; }
+
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ff4455; margin-right: 6px; vertical-align: middle; }
+        .status-dot.on { background: #00ff88; box-shadow: 0 0 8px #00ff88; }
+    </style>
+</head>
+<body>
+    <h1>SILVIA · TEST CLIENT (Fase 1)</h1>
+    <div class="sub">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">desconectado</span>
+        · sid: <span id="sid">—</span>
+    </div>
+
+    <div class="grid">
+        <!-- CREATE -->
+        <div class="card">
+            <h2>1. Criar sala</h2>
+            <label>Apelido do host</label>
+            <input id="host-nick" placeholder="Ex.: Paulo" value="Paulo">
+            <label>Máximo de jogadores (2–32)</label>
+            <input id="max-players" type="number" min="2" max="32" value="4">
+            <button id="btn-create">criar sala</button>
+        </div>
+
+        <!-- JOIN -->
+        <div class="card">
+            <h2>2. Entrar em sala</h2>
+            <label>Código da sala (6 caracteres)</label>
+            <input id="join-code" placeholder="Ex.: AB23CD" maxlength="6" style="text-transform:uppercase; letter-spacing: 4px;">
+            <label>Seu apelido</label>
+            <input id="join-nick" placeholder="Ex.: Visitante">
+            <div class="row">
+                <button id="btn-check" class="ghost">verificar sala</button>
+                <button id="btn-join">entrar</button>
+            </div>
+        </div>
+
+        <!-- ROOM STATE -->
+        <div class="card" style="grid-column: 1 / -1;">
+            <h2>3. Estado da sala</h2>
+            <div id="room-empty" style="color:#7a8a85; font-size:12px;">nenhuma sala ativa nesta aba</div>
+            <div id="room-active" style="display:none;">
+                <div class="room-info">
+                    <div><span class="k">código:</span> <span class="code" id="r-code">—</span></div>
+                    <div><span class="k">host:</span> <span class="v" id="r-host">—</span></div>
+                    <div><span class="k">status:</span> <span class="v" id="r-status">—</span></div>
+                    <div><span class="k">jogadores:</span> <span class="v" id="r-count">—</span></div>
+                </div>
+                <div class="players" id="r-players"></div>
+                <button id="btn-leave" class="ghost" style="margin-top:14px;">sair da sala</button>
+            </div>
+        </div>
+
+        <!-- LOG -->
+        <div class="card" style="grid-column: 1 / -1;">
+            <h2>4. Log de eventos</h2>
+            <div class="log" id="log"></div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const $ = id => document.getElementById(id);
+        const log = $('log');
+
+        function logEvent(label, data, kind = 'ev') {
+            const ts = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            const payload = data === undefined ? '' : ' ' + JSON.stringify(data);
+            div.innerHTML = `<span class="ts">[${ts}]</span> <span class="${kind}">${label}</span>${payload}`;
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        // ─── Socket ──────────────────────────────────────────
+        const socket = io({ transports: ['websocket', 'polling'] });
+
+        socket.on('connect', () => {
+            $('status-dot').classList.add('on');
+            $('status-text').textContent = 'conectado';
+            $('sid').textContent = socket.id;
+            logEvent('connect', { id: socket.id });
+        });
+        socket.on('disconnect', (reason) => {
+            $('status-dot').classList.remove('on');
+            $('status-text').textContent = 'desconectado: ' + reason;
+            logEvent('disconnect', { reason }, 'err');
+        });
+        socket.on('hello', (d) => logEvent('hello', d));
+        socket.on('room:player_joined', (d) => {
+            logEvent('room:player_joined', { nickname: d.nickname });
+            renderRoom(d.room);
+        });
+        socket.on('room:player_left', (d) => {
+            logEvent('room:player_left', { nickname: d.nickname, newHost: d.newHostNickname });
+            renderRoom(d.room);
+        });
+
+        // ─── Render ──────────────────────────────────────────
+        let currentRoom = null;
+
+        function renderRoom(room) {
+            if (!room) {
+                $('room-active').style.display = 'none';
+                $('room-empty').style.display = 'block';
+                currentRoom = null;
+                return;
+            }
+            currentRoom = room;
+            $('room-empty').style.display = 'none';
+            $('room-active').style.display = 'block';
+            $('r-code').textContent = room.code;
+            $('r-host').textContent = room.hostNickname;
+            $('r-status').textContent = room.status;
+            $('r-count').textContent = `${room.playerCount} / ${room.maxPlayers}`;
+
+            const list = $('r-players');
+            list.innerHTML = '';
+            (room.players || []).forEach(p => {
+                const el = document.createElement('div');
+                el.className = 'player' + (p.isHost ? ' host' : '');
+                el.innerHTML = `<span>${p.nickname}</span><span>${p.isHost ? 'HOST' : ''}</span>`;
+                list.appendChild(el);
+            });
+        }
+
+        // ─── Actions ─────────────────────────────────────────
+        $('btn-create').addEventListener('click', async () => {
+            const hostNickname = $('host-nick').value.trim();
+            const maxPlayers = Number($('max-players').value);
+            if (!hostNickname) return alert('apelido vazio');
+
+            try {
+                const res = await fetch('/api/rooms', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hostNickname, maxPlayers }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    logEvent('POST /api/rooms → ' + res.status, data, 'err');
+                    return;
+                }
+                logEvent('POST /api/rooms → 201', { code: data.code });
+                // Auto-join como host
+                socket.emit('room:join', { code: data.code, nickname: hostNickname }, (ack) => {
+                    if (ack.ok) {
+                        logEvent('room:join (host) OK', { code: data.code, isHost: ack.you.isHost });
+                        renderRoom(ack.room);
+                    } else {
+                        logEvent('room:join (host) ERR', ack, 'err');
+                    }
+                });
+            } catch (err) {
+                logEvent('POST /api/rooms FAIL', { message: err.message }, 'err');
+            }
+        });
+
+        $('btn-check').addEventListener('click', async () => {
+            const code = $('join-code').value.trim().toUpperCase();
+            if (code.length !== 6) return alert('código com 6 caracteres');
+            const res = await fetch('/api/rooms/' + code);
+            const data = await res.json();
+            logEvent('GET /api/rooms/' + code + ' → ' + res.status, data, res.ok ? 'ev' : 'err');
+        });
+
+        $('btn-join').addEventListener('click', () => {
+            const code = $('join-code').value.trim().toUpperCase();
+            const nickname = $('join-nick').value.trim();
+            if (code.length !== 6) return alert('código com 6 caracteres');
+            if (!nickname) return alert('apelido vazio');
+
+            socket.emit('room:join', { code, nickname }, (ack) => {
+                if (ack.ok) {
+                    logEvent('room:join OK', { code, isHost: ack.you.isHost });
+                    renderRoom(ack.room);
+                } else {
+                    logEvent('room:join ERR', ack, 'err');
+                }
+            });
+        });
+
+        $('btn-leave').addEventListener('click', () => {
+            socket.emit('room:leave', null, (ack) => {
+                logEvent('room:leave', ack);
+                renderRoom(null);
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Marcador AR — Silvia</title>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #f4f4f4;
+            color: #111;
+            min-height: 100vh;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        h1 { font-size: 20px; font-weight: 700; }
+        .desc {
+            max-width: 560px;
+            text-align: center;
+            color: #555;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .actions button {
+            background: #111;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 18px;
+            font-size: 14px;
+            cursor: pointer;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .actions button:hover { background: #333; }
+        .actions button.ghost {
+            background: #fff;
+            color: #111;
+            border: 1px solid #ccc;
+        }
+
+        /* The page that gets printed — exactly one A4 with the marker centered */
+        .sheet {
+            background: #fff;
+            width: 210mm;
+            height: 297mm;
+            padding: 20mm;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+        }
+
+        /* QR + its quiet zone */
+        .qr-wrap {
+            background: #fff;
+            padding: 20mm;
+            border: 1px dashed #ccc;
+        }
+        .qr-wrap svg, .qr-wrap canvas {
+            display: block;
+            width: 130mm;
+            height: 130mm;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            shape-rendering: crispEdges;
+        }
+        .qr-wrap.no-border { border: none; }
+
+        .marker-label {
+            margin-top: 14mm;
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+            font-size: 11pt;
+            letter-spacing: 2px;
+            color: #333;
+            text-align: center;
+        }
+        .marker-label .version {
+            font-size: 9pt;
+            color: #888;
+            margin-top: 2mm;
+            letter-spacing: 1px;
+        }
+
+        .checklist {
+            max-width: 560px;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 16px 20px;
+            font-size: 13px;
+            line-height: 1.7;
+        }
+        .checklist h3 { font-size: 13px; margin-bottom: 8px; color: #111; }
+        .checklist ul { padding-left: 18px; color: #444; }
+
+        /* PRINT — only the .sheet, no borders, no shadows, no controls */
+        @media print {
+            body { background: #fff; padding: 0; gap: 0; }
+            h1, .desc, .actions, .checklist { display: none !important; }
+            .sheet {
+                box-shadow: none;
+                width: auto;
+                height: auto;
+                padding: 0;
+            }
+            .qr-wrap { border: none; }
+            @page { size: A4; margin: 15mm; }
+        }
+    </style>
+</head>
+<body>
+    <h1>Marcador AR — Silvia</h1>
+    <p class="desc">
+        Imprima esta página em <b>A4, papel fosco</b>. O marcador deve ter cerca de <b>13&nbsp;cm de lado</b>
+        (já ajustado). Mantenha a borda branca ao redor — é o que permite a câmera detectar o padrão.
+    </p>
+
+    <div class="actions">
+        <button onclick="window.print()">🖨 Imprimir</button>
+        <button class="ghost" onclick="downloadSVG()">⬇ Baixar SVG</button>
+        <button class="ghost" onclick="downloadPNG()">⬇ Baixar PNG (2000px)</button>
+    </div>
+
+    <div class="sheet" id="sheet">
+        <div class="qr-wrap" id="qr-wrap">
+            <!-- QR injected here -->
+        </div>
+        <div class="marker-label">
+            SILVIA · AR MARKER
+            <div class="version">v1 · payload: SILVIA-AR-MARKER-V1</div>
+        </div>
+    </div>
+
+    <div class="checklist">
+        <h3>Checklist de impressão</h3>
+        <ul>
+            <li>Papel <b>fosco</b> (evita reflexo em luz direta)</li>
+            <li>Imprimir em <b>preto e branco, 100% de escala</b> (sem "ajustar à página" — isso encolhe e dificulta o tracking)</li>
+            <li>Não recortar a borda branca ao redor do QR</li>
+            <li>Cole em superfície <b>plana e rígida</b> (papelão, MDF) — papel curvado quebra o tracking</li>
+            <li>Iluminação difusa: evite jogar lanterna no marcador</li>
+            <li>Distância ideal de uso: 1m a 3m da câmera</li>
+        </ul>
+    </div>
+
+    <script>
+        // Payload encoded in the QR. We don't strictly need to encode anything
+        // for AR image-tracking (MindAR will track the visual pattern), but we
+        // version it here so any future redesign can be detected by scanning.
+        const PAYLOAD = 'SILVIA-AR-MARKER-V1';
+
+        // Build QR with high error correction (H) so the marker survives
+        // minor printing imperfections, fingerprints and partial occlusion.
+        const qr = qrcode(0, 'H');
+        qr.addData(PAYLOAD);
+        qr.make();
+
+        const moduleCount = qr.getModuleCount();
+        // viewBox sized to module grid — SVG scales cleanly via CSS
+        const svgNS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNS, 'svg');
+        svg.setAttribute('xmlns', svgNS);
+        svg.setAttribute('viewBox', `0 0 ${moduleCount} ${moduleCount}`);
+        svg.setAttribute('shape-rendering', 'crispEdges');
+
+        // white background
+        const bg = document.createElementNS(svgNS, 'rect');
+        bg.setAttribute('x', '0'); bg.setAttribute('y', '0');
+        bg.setAttribute('width', moduleCount); bg.setAttribute('height', moduleCount);
+        bg.setAttribute('fill', '#ffffff');
+        svg.appendChild(bg);
+
+        // dark modules — combine into a single path for smaller SVG
+        let pathData = '';
+        for (let r = 0; r < moduleCount; r++) {
+            for (let c = 0; c < moduleCount; c++) {
+                if (qr.isDark(r, c)) {
+                    pathData += `M${c},${r}h1v1h-1z`;
+                }
+            }
+        }
+        const path = document.createElementNS(svgNS, 'path');
+        path.setAttribute('d', pathData);
+        path.setAttribute('fill', '#000000');
+        svg.appendChild(path);
+
+        document.getElementById('qr-wrap').appendChild(svg);
+
+        // ─── Downloads ───────────────────────────────────────
+        function svgAsString() {
+            const clone = svg.cloneNode(true);
+            // Stamp explicit width/height for downloaded file (in mm)
+            clone.setAttribute('width', '130mm');
+            clone.setAttribute('height', '130mm');
+            const s = new XMLSerializer().serializeToString(clone);
+            return '<?xml version="1.0" encoding="UTF-8"?>\n' + s;
+        }
+
+        function downloadSVG() {
+            const blob = new Blob([svgAsString()], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'silvia-ar-marker-v1.svg';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function downloadPNG() {
+            // Rasterize at 2000px so even printed huge it stays sharp
+            const size = 2000;
+            const canvas = document.createElement('canvas');
+            canvas.width = size; canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, size, size);
+            const cell = size / moduleCount;
+            ctx.fillStyle = '#000';
+            for (let r = 0; r < moduleCount; r++) {
+                for (let c = 0; c < moduleCount; c++) {
+                    if (qr.isDark(r, c)) {
+                        ctx.fillRect(
+                            Math.floor(c * cell),
+                            Math.floor(r * cell),
+                            Math.ceil(cell),
+                            Math.ceil(cell)
+                        );
+                    }
+                }
+            }
+            canvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'silvia-ar-marker-v1.png';
+                a.click();
+                URL.revokeObjectURL(url);
+            }, 'image/png');
+        }
+    </script>
+</body>
+</html>

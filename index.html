@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Esferas da Taísa RA</title>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            color: #fff;
+            font-family: 'Share Tech Mono', monospace;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: none;
+            position: fixed;
+        }
+
+        /* Camera feed */
+        #cam {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: 0;
+            background: #000;
+        }
+
+        /* Three.js canvas — transparent on top of camera */
+        #scene {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* UI layer */
+        #ui {
+            position: fixed;
+            inset: 0;
+            z-index: 10;
+            pointer-events: none;
+        }
+        #ui button, #ui .interactive { pointer-events: auto; }
+
+        /* ─── HUD ─── */
+        #hud {
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            padding: 14px 14px;
+            padding-top: max(14px, env(safe-area-inset-top));
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .hud-panel {
+            background: rgba(0, 0, 0, 0.55);
+            border: 1px solid rgba(0, 255, 136, 0.4);
+            border-radius: 4px;
+            padding: 6px 12px;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            min-width: 60px;
+        }
+
+        .hud-label {
+            font-size: 9px;
+            letter-spacing: 2px;
+            color: rgba(0, 255, 136, 0.65);
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }
+
+        .hud-value {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 22px;
+            font-weight: 900;
+            color: #00ff88;
+            line-height: 1;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.7);
+        }
+
+        .hud-value.warning { color: #ffaa00; text-shadow: 0 0 10px rgba(255, 170, 0, 0.7); }
+        .hud-value.danger  { color: #ff4455; text-shadow: 0 0 10px rgba(255, 68, 85, 0.7); animation: blink 0.5s infinite; }
+        @keyframes blink { 50% { opacity: 0.4; } }
+
+        /* ─── Crosshair ─── */
+        #crosshair {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 36px; height: 36px;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(0, 255, 136, 0.9);
+            box-shadow: 0 0 6px rgba(0, 255, 136, 0.6);
+        }
+        #crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
+        #crosshair::after  { height: 2px; width: 100%; top: 50%; transform: translateY(-50%); }
+        #crosshair .dot {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 4px; height: 4px;
+            border-radius: 50%;
+            background: #00ff88;
+            box-shadow: 0 0 10px #00ff88;
+        }
+        #crosshair.locked::before,
+        #crosshair.locked::after { background: #ff4455; box-shadow: 0 0 8px #ff4455; }
+        #crosshair.locked .dot { background: #ff4455; box-shadow: 0 0 10px #ff4455; }
+
+        /* ─── Banner ─── */
+        #banner {
+            position: absolute;
+            top: 76px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(0, 255, 136, 0.4);
+            border-radius: 4px;
+            padding: 10px 16px;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            font-size: 12px;
+            letter-spacing: 2px;
+            color: rgba(255, 255, 255, 0.92);
+            text-align: center;
+            max-width: 88%;
+            text-transform: uppercase;
+        }
+        #banner b { color: #00ff88; }
+
+        /* ─── Phase actions (above shoot row) ─── */
+        #phase-actions {
+            position: absolute;
+            bottom: 130px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+            width: 90%;
+            max-width: 380px;
+        }
+
+        .btn-phase {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 3px;
+            color: #000;
+            background: #00ff88;
+            border: none;
+            border-radius: 3px;
+            padding: 12px 22px;
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .btn-phase:active { transform: scale(0.94); }
+        .btn-phase[disabled] {
+            background: rgba(0, 255, 136, 0.2);
+            color: rgba(255, 255, 255, 0.4);
+            box-shadow: none;
+        }
+        .btn-phase.secondary {
+            background: transparent;
+            color: #00ff88;
+            border: 1px solid #00ff88;
+            box-shadow: none;
+        }
+
+        /* ─── Shoot buttons ─── */
+        #shoot-row {
+            position: absolute;
+            bottom: max(22px, env(safe-area-inset-bottom));
+            left: 0; right: 0;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 26px;
+        }
+
+        .shoot-btn {
+            width: 78px;
+            height: 78px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, rgba(255, 100, 110, 0.95), rgba(140, 20, 30, 0.95));
+            border: 3px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 0 0 24px rgba(255, 68, 85, 0.6), inset 0 0 12px rgba(0, 0, 0, 0.4);
+            color: #fff;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 11px;
+            font-weight: 900;
+            letter-spacing: 2px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.05s, box-shadow 0.1s;
+        }
+        .shoot-btn:active {
+            transform: scale(0.92);
+            box-shadow: 0 0 36px rgba(255, 68, 85, 0.95), inset 0 0 20px rgba(0, 0, 0, 0.6);
+        }
+
+        /* ─── Combo ─── */
+        #combo {
+            position: absolute;
+            top: 40%; left: 50%;
+            transform: translate(-50%, -50%);
+            opacity: 0;
+            text-align: center;
+        }
+        #combo.show { animation: comboPop 0.7s ease-out forwards; }
+        @keyframes comboPop {
+            0% { transform: translate(-50%, -30%) scale(0.5); opacity: 1; }
+            40% { transform: translate(-50%, -50%) scale(1.25); opacity: 1; }
+            100% { transform: translate(-50%, -85%) scale(0.85); opacity: 0; }
+        }
+        .combo-pts {
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 900;
+            font-size: 42px;
+            color: #fff;
+            text-shadow: 0 0 20px #00ff88, 0 0 40px #00ff88;
+        }
+        .combo-lbl {
+            font-size: 11px;
+            letter-spacing: 5px;
+            color: #00ff88;
+            text-transform: uppercase;
+        }
+
+        /* ─── Flash ─── */
+        #flash {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 255, 136, 0.18);
+            opacity: 0;
+            transition: opacity 0.08s;
+        }
+        #flash.on { opacity: 1; }
+
+        /* ─── Scanlines ─── */
+        #scanlines {
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(0deg,
+                transparent, transparent 2px,
+                rgba(0, 0, 0, 0.05) 2px, rgba(0, 0, 0, 0.05) 4px);
+        }
+
+        /* ─── Mini-map (radar) ─── */
+        #radar {
+            position: absolute;
+            bottom: 130px;
+            right: 16px;
+            width: 80px; height: 80px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.55);
+            border: 1px solid rgba(0, 255, 136, 0.5);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            display: none;
+        }
+        #radar svg { width: 100%; height: 100%; }
+        .radar-blip { fill: #00ff88; }
+        .radar-blip.rare { fill: #ff4455; }
+        .radar-fov {
+            stroke: rgba(0, 255, 136, 0.5);
+            stroke-width: 1;
+            fill: rgba(0, 255, 136, 0.1);
+        }
+        .radar-center {
+            fill: #00ff88;
+        }
+
+        /* ─── Pre-overlays ─── */
+        .pre-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.94);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 18px;
+            padding: 24px;
+            text-align: center;
+        }
+        .pre-overlay.hidden { display: none; }
+
+        .title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: clamp(28px, 8vw, 52px);
+            font-weight: 900;
+            color: #00ff88;
+            text-shadow: 0 0 30px rgba(0, 255, 136, 0.8);
+            letter-spacing: 4px;
+            line-height: 1.1;
+        }
+
+        .subtitle {
+            font-size: 11px;
+            letter-spacing: 5px;
+            color: rgba(0, 255, 136, 0.5);
+            text-transform: uppercase;
+            margin-top: 6px;
+        }
+
+        .box {
+            border: 1px solid rgba(0, 255, 136, 0.25);
+            border-radius: 6px;
+            padding: 16px 22px;
+            max-width: 360px;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.4);
+        }
+
+        .row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(0, 255, 136, 0.1);
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.75);
+            letter-spacing: 1px;
+            text-align: left;
+        }
+        .row:last-child { border-bottom: none; }
+        .icon { font-size: 18px; width: 28px; text-align: center; flex-shrink: 0; }
+
+        .btn {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 4px;
+            color: #000;
+            background: #00ff88;
+            border: none;
+            border-radius: 3px;
+            padding: 16px 40px;
+            cursor: pointer;
+            text-transform: uppercase;
+            box-shadow: 0 0 28px rgba(0, 255, 136, 0.5);
+            transition: transform 0.1s;
+        }
+        .btn:active { transform: scale(0.96); }
+        .btn[disabled] { background: rgba(0,255,136,0.2); color: rgba(255,255,255,0.4); box-shadow: none; cursor: not-allowed; }
+
+        .btn.secondary {
+            background: transparent;
+            color: #00ff88;
+            border: 1px solid #00ff88;
+            box-shadow: none;
+            padding: 12px 28px;
+            font-size: 12px;
+        }
+
+        .go-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: clamp(28px, 7vw, 48px);
+            font-weight: 900;
+            color: #ff4455;
+            text-shadow: 0 0 30px rgba(255, 68, 85, 0.8);
+            letter-spacing: 4px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            width: 100%;
+            max-width: 320px;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(0, 255, 136, 0.2);
+            border-radius: 4px;
+            padding: 14px;
+            text-align: center;
+        }
+        .card-lbl {
+            font-size: 9px;
+            letter-spacing: 3px;
+            color: rgba(0, 255, 136, 0.5);
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+        .card-val {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 24px;
+            font-weight: 700;
+            color: #00ff88;
+        }
+
+        .err-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 22px;
+            color: #ff4455;
+            letter-spacing: 3px;
+            text-shadow: 0 0 20px rgba(255, 68, 85, 0.5);
+        }
+        .err-msg {
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 13px;
+            line-height: 1.7;
+            max-width: 380px;
+        }
+        .err-msg b { color: #00ff88; }
+        .err-msg code {
+            background: rgba(0, 255, 136, 0.1);
+            padding: 1px 6px;
+            border-radius: 3px;
+            color: #00ff88;
+            font-family: 'Share Tech Mono', monospace;
+        }
+    </style>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.169.0/build/three.module.js"
+        }
+    }
+    </script>
+</head>
+
+<body>
+    <!-- Camera background -->
+    <video id="cam" autoplay playsinline muted webkit-playsinline></video>
+
+    <!-- Three.js canvas (transparent) -->
+    <canvas id="scene"></canvas>
+
+    <!-- UI -->
+    <div id="ui">
+        <div id="scanlines"></div>
+        <div id="flash"></div>
+
+        <div id="hud" style="display:none;">
+            <div class="hud-panel">
+                <div class="hud-label">Pontos</div>
+                <div class="hud-value" id="score">000</div>
+            </div>
+            <div class="hud-panel" style="text-align:center;">
+                <div class="hud-label">Tempo</div>
+                <div class="hud-value" id="timer">30</div>
+            </div>
+            <div class="hud-panel" style="text-align:right;">
+                <div class="hud-label">Acertos</div>
+                <div class="hud-value" id="hits">0</div>
+            </div>
+        </div>
+
+        <div id="banner" style="display:none;"></div>
+
+        <div id="crosshair" style="display:none;"><div class="dot"></div></div>
+
+        <div id="combo">
+            <div class="combo-pts" id="combo-pts">+10</div>
+            <div class="combo-lbl" id="combo-lbl">HIT!</div>
+        </div>
+
+        <!-- Radar minimap (top-down view of spheres around you) -->
+        <div id="radar">
+            <svg viewBox="-50 -50 100 100">
+                <circle cx="0" cy="0" r="48" fill="none" stroke="rgba(0,255,136,0.3)" stroke-width="0.5"></circle>
+                <circle cx="0" cy="0" r="24" fill="none" stroke="rgba(0,255,136,0.2)" stroke-width="0.5"></circle>
+                <g id="radar-blips"></g>
+                <polygon class="radar-fov" id="radar-fov" points="0,0 -10,-40 10,-40"></polygon>
+                <circle class="radar-center" cx="0" cy="0" r="2"></circle>
+            </svg>
+        </div>
+
+        <div id="phase-actions" style="display:none;"></div>
+
+        <div id="shoot-row" style="display:none;">
+            <button class="shoot-btn interactive" id="shoot-l">FIRE</button>
+            <button class="shoot-btn interactive" id="shoot-r">FIRE</button>
+        </div>
+    </div>
+
+    <!-- Start screen -->
+    <div id="start-screen" class="pre-overlay">
+        <div>
+            <div class="title">Esferas da<br>Taísa RA</div>
+            <div class="subtitle">jogo de tiro em realidade aumentada</div>
+        </div>
+        <div class="box">
+            <div class="row"><span class="icon">📱</span><span>Gire o celular para olhar ao redor</span></div>
+            <div class="row"><span class="icon">📍</span><span>Aponte e toque pra posicionar as esferas</span></div>
+            <div class="row"><span class="icon">🎯</span><span>Centro = mira; gire o celular pra mirar</span></div>
+            <div class="row"><span class="icon">🔫</span><span>Toque nos botões FIRE para atirar</span></div>
+            <div class="row"><span class="icon">⏱</span><span>30 segundos pra acertar tudo</span></div>
+        </div>
+        <button class="btn" id="btn-start">INICIAR</button>
+    </div>
+
+    <!-- Game over -->
+    <div id="gameover-screen" class="pre-overlay hidden">
+        <div class="go-title">GAME OVER</div>
+        <div class="grid">
+            <div class="card">
+                <div class="card-lbl">Score</div>
+                <div class="card-val" id="final-score">0</div>
+            </div>
+            <div class="card">
+                <div class="card-lbl">Acertos</div>
+                <div class="card-val" id="final-hits">0</div>
+            </div>
+            <div class="card" style="grid-column:1/-1;">
+                <div class="card-lbl">Recorde</div>
+                <div class="card-val" id="best-score">0</div>
+            </div>
+        </div>
+        <button class="btn" id="btn-restart">JOGAR NOVAMENTE</button>
+    </div>
+
+    <!-- Error -->
+    <div id="err-screen" class="pre-overlay hidden">
+        <div class="err-title">ALGO DEU ERRADO</div>
+        <div class="err-msg" id="err-msg"></div>
+        <button class="btn" id="btn-retry">TENTAR NOVAMENTE</button>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // ─── Phases ─────────────────────────────────────────────
+        const PHASES = { IDLE: 'idle', SCAN: 'scan', PLACE: 'place', PLAY: 'play', OVER: 'over' };
+        const state = {
+            phase: PHASES.IDLE,
+            score: 0,
+            hits: 0,
+            timeLeft: 30,
+            spheres: [],
+            best: parseInt(localStorage.getItem('arSpheresBest') || '0', 10),
+            lastShotAt: 0,
+            // Orientation
+            orient: { alpha: 0, beta: 0, gamma: 0 },
+            orientReady: false,
+            orientBaseAlpha: null,  // calibration anchor
+            // Scan progress
+            scanCoverage: new Set(), // unique 30° yaw buckets visited
+        };
+
+        const MIN_PLACE = 3;
+        const MAX_PLACE = 8;
+        const SHOT_COOLDOWN_MS = 220;
+        const PLACE_DISTANCE = 2.5;
+        const SCAN_BUCKETS_NEEDED = 6; // ~180° coverage to advance
+
+        const SPHERE_TYPES = [
+            { key: 'normal', color: 0x00ddff, emissive: 0x004466, points: 10, radius: 0.18, label: 'NORMAL' },
+            { key: 'fast',   color: 0x00ff88, emissive: 0x004422, points: 20, radius: 0.15, label: 'RÁPIDA' },
+            { key: 'rare',   color: 0xff4455, emissive: 0x440011, points: 50, radius: 0.13, label: 'RARA!' },
+        ];
+
+        function pickType() {
+            const r = Math.random();
+            if (r < 0.55) return SPHERE_TYPES[0];
+            if (r < 0.85) return SPHERE_TYPES[1];
+            return SPHERE_TYPES[2];
+        }
+
+        // ─── DOM refs ───────────────────────────────────────────
+        const $ = id => document.getElementById(id);
+        const cam = $('cam');
+        const sceneCanvas = $('scene');
+        const hud = $('hud');
+        const banner = $('banner');
+        const crosshair = $('crosshair');
+        const phaseActions = $('phase-actions');
+        const shootRow = $('shoot-row');
+        const radar = $('radar');
+        const radarBlips = $('radar-blips');
+        const radarFov = $('radar-fov');
+        const scoreEl = $('score');
+        const timerEl = $('timer');
+        const hitsEl = $('hits');
+        const flash = $('flash');
+        const combo = $('combo');
+        const comboPts = $('combo-pts');
+        const comboLbl = $('combo-lbl');
+        const startScreen = $('start-screen');
+        const gameoverScreen = $('gameover-screen');
+        const errScreen = $('err-screen');
+        const errMsg = $('err-msg');
+
+        // ─── Three.js ───────────────────────────────────────────
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.01, 100);
+        const renderer = new THREE.WebGLRenderer({ canvas: sceneCanvas, antialias: true, alpha: true });
+        renderer.setPixelRatio(devicePixelRatio);
+        renderer.setSize(innerWidth, innerHeight);
+        renderer.setClearColor(0x000000, 0);
+
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x444466, 1.6));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(0.5, 1, 0.3);
+        scene.add(dirLight);
+
+        // Placement reticle — small ring that floats in front of the camera
+        const reticle = new THREE.Mesh(
+            new THREE.RingGeometry(0.08, 0.1, 32),
+            new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
+        );
+        reticle.visible = false;
+        scene.add(reticle);
+
+        const reticleDot = new THREE.Mesh(
+            new THREE.CircleGeometry(0.015, 16),
+            new THREE.MeshBasicMaterial({ color: 0x00ff88 })
+        );
+        reticle.add(reticleDot);
+
+        function onResize() {
+            camera.aspect = innerWidth / innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(innerWidth, innerHeight);
+        }
+        addEventListener('resize', onResize);
+        addEventListener('orientationchange', () => setTimeout(onResize, 200));
+
+        // ─── Device orientation → camera rotation ───────────────
+        // Convert deviceorientation (alpha, beta, gamma) to a Three.js quaternion.
+        // Reference: Three.js DeviceOrientationControls
+        const zee = new THREE.Vector3(0, 0, 1);
+        const q1Helper = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); // -PI/2 around X
+        const eulerHelper = new THREE.Euler();
+
+        function setObjectQuaternion(quaternion, alpha, beta, gamma, orient) {
+            eulerHelper.set(beta, alpha, -gamma, 'YXZ');
+            quaternion.setFromEuler(eulerHelper);
+            quaternion.multiply(q1Helper);
+            quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(zee, -orient));
+        }
+
+        function updateCameraOrientation() {
+            if (!state.orientReady) return;
+            const screenOrient = (screen.orientation && screen.orientation.angle != null)
+                ? screen.orientation.angle
+                : (window.orientation || 0);
+            const orient = THREE.MathUtils.degToRad(screenOrient);
+
+            // Apply calibration: subtract the base alpha so user's initial direction == 0
+            let alpha = THREE.MathUtils.degToRad(state.orient.alpha || 0);
+            const beta  = THREE.MathUtils.degToRad(state.orient.beta || 0);
+            const gamma = THREE.MathUtils.degToRad(state.orient.gamma || 0);
+            if (state.orientBaseAlpha != null) {
+                alpha -= THREE.MathUtils.degToRad(state.orientBaseAlpha);
+            }
+            setObjectQuaternion(camera.quaternion, alpha, beta, gamma, orient);
+        }
+
+        function onDeviceOrientation(ev) {
+            if (ev.alpha == null) return;
+            state.orient.alpha = ev.alpha;
+            state.orient.beta = ev.beta;
+            state.orient.gamma = ev.gamma;
+            state.orientReady = true;
+
+            // Track scan coverage during SCAN phase
+            if (state.phase === PHASES.SCAN) {
+                const yawDeg = ((ev.alpha % 360) + 360) % 360;
+                const bucket = Math.floor(yawDeg / 30); // 12 buckets of 30°
+                state.scanCoverage.add(bucket);
+                if (state.scanCoverage.size >= SCAN_BUCKETS_NEEDED && state.orientBaseAlpha == null) {
+                    // Auto-calibrate to current facing on advance
+                    enterPhase(PHASES.PLACE);
+                } else if (state.phase === PHASES.SCAN) {
+                    const pct = Math.min(100, Math.round((state.scanCoverage.size / SCAN_BUCKETS_NEEDED) * 100));
+                    banner.innerHTML = '<b>MAPEANDO AMBIENTE</b><br>Gire em volta — ' + pct + '%';
+                }
+            }
+        }
+
+        async function requestOrientationPermission() {
+            // iOS 13+ requires explicit request
+            if (typeof DeviceOrientationEvent !== 'undefined' &&
+                typeof DeviceOrientationEvent.requestPermission === 'function') {
+                const res = await DeviceOrientationEvent.requestPermission();
+                if (res !== 'granted') {
+                    throw new Error('Permissão de orientação negada. Habilite "Movimento e Orientação" nas configurações do Safari.');
+                }
+            }
+            // Use absolute event if supported (more stable across browsers)
+            if ('ondeviceorientationabsolute' in window) {
+                window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
+            }
+            window.addEventListener('deviceorientation', onDeviceOrientation, true);
+        }
+
+        // ─── Camera (webcam) ────────────────────────────────────
+        let mediaStream = null;
+        async function startCamera() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error('Seu navegador não suporta câmera (getUserMedia).');
+            }
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false
+                });
+            } catch (e) {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            }
+            cam.srcObject = mediaStream;
+            await new Promise((resolve, reject) => {
+                cam.onloadedmetadata = () => cam.play().then(resolve).catch(reject);
+                setTimeout(() => reject(new Error('A câmera demorou para responder.')), 10000);
+            });
+        }
+
+        function stopCamera() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(t => t.stop());
+                mediaStream = null;
+            }
+            cam.srcObject = null;
+        }
+
+        // ─── Spheres ────────────────────────────────────────────
+        function spawnSphereAtCameraDir() {
+            if (state.spheres.length >= MAX_PLACE) return;
+            const type = pickType();
+
+            const geom = new THREE.SphereGeometry(type.radius, 28, 18);
+            const mat = new THREE.MeshStandardMaterial({
+                color: type.color,
+                emissive: type.emissive,
+                emissiveIntensity: 0.55,
+                roughness: 0.35,
+                metalness: 0.4,
+            });
+            const mesh = new THREE.Mesh(geom, mat);
+
+            // Place along camera forward at PLACE_DISTANCE
+            const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            const pos = fwd.multiplyScalar(PLACE_DISTANCE);
+            mesh.position.copy(pos);
+
+            // Glow ring (subtle aura)
+            const ring = new THREE.Mesh(
+                new THREE.RingGeometry(type.radius * 1.3, type.radius * 1.5, 24),
+                new THREE.MeshBasicMaterial({ color: type.color, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
+            );
+            ring.rotation.y = Math.PI; // face camera
+            mesh.add(ring);
+
+            mesh.userData.type = type;
+            mesh.userData.alive = true;
+            mesh.userData.baseY = pos.y;
+            mesh.userData.bobPhase = Math.random() * Math.PI * 2;
+            mesh.userData.popStart = performance.now();
+
+            mesh.scale.setScalar(0.01);
+            scene.add(mesh);
+            state.spheres.push({ mesh, type });
+            updatePlaceUI();
+            updateRadar();
+        }
+
+        function clearSpheres() {
+            state.spheres.forEach(s => {
+                scene.remove(s.mesh);
+                s.mesh.traverse(o => {
+                    if (o.geometry) o.geometry.dispose();
+                    if (o.material) o.material.dispose();
+                });
+            });
+            state.spheres = [];
+            updateRadar();
+        }
+
+        function destroySphere(sphereObj) {
+            sphereObj.mesh.userData.alive = false;
+            sphereObj.mesh.userData.outStart = performance.now();
+            setTimeout(() => {
+                scene.remove(sphereObj.mesh);
+                sphereObj.mesh.traverse(o => {
+                    if (o.geometry) o.geometry.dispose();
+                    if (o.material) o.material.dispose();
+                });
+                state.spheres = state.spheres.filter(s => s !== sphereObj);
+                updateRadar();
+                if (state.phase === PHASES.PLAY && state.spheres.length === 0) {
+                    enterPhase(PHASES.OVER);
+                }
+            }, 260);
+        }
+
+        // ─── Shoot ──────────────────────────────────────────────
+        const raycaster = new THREE.Raycaster();
+        const camForward = new THREE.Vector3();
+
+        function shoot() {
+            if (state.phase !== PHASES.PLAY) return;
+            const now = performance.now();
+            if (now - state.lastShotAt < SHOT_COOLDOWN_MS) return;
+            state.lastShotAt = now;
+
+            camForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
+            raycaster.set(camera.position, camForward);
+            raycaster.far = 50;
+
+            const targets = state.spheres
+                .filter(s => s.mesh.userData.alive)
+                .map(s => s.mesh);
+            const hits = raycaster.intersectObjects(targets, false);
+
+            flash.classList.add('on');
+            setTimeout(() => flash.classList.remove('on'), 80);
+            if (navigator.vibrate) navigator.vibrate(28);
+
+            if (hits.length > 0) {
+                const sphereObj = state.spheres.find(s => s.mesh === hits[0].object);
+                if (sphereObj) onSphereHit(sphereObj);
+            }
+        }
+
+        function onSphereHit(sphereObj) {
+            const type = sphereObj.type;
+            state.score += type.points;
+            state.hits++;
+            scoreEl.textContent = String(state.score).padStart(3, '0');
+            hitsEl.textContent = state.hits;
+
+            comboPts.textContent = '+' + type.points;
+            comboLbl.textContent = type.label;
+            combo.classList.remove('show');
+            void combo.offsetWidth;
+            combo.classList.add('show');
+
+            if (navigator.vibrate) navigator.vibrate([15, 20, 50]);
+            destroySphere(sphereObj);
+        }
+
+        // ─── Crosshair lock indicator ──────────────────────────
+        function updateCrosshairLock() {
+            if (state.phase !== PHASES.PLAY) {
+                crosshair.classList.remove('locked');
+                return;
+            }
+            camForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
+            raycaster.set(camera.position, camForward);
+            raycaster.far = 50;
+            const targets = state.spheres.filter(s => s.mesh.userData.alive).map(s => s.mesh);
+            const hits = raycaster.intersectObjects(targets, false);
+            crosshair.classList.toggle('locked', hits.length > 0);
+        }
+
+        // ─── Radar ──────────────────────────────────────────────
+        function updateRadar() {
+            radarBlips.innerHTML = '';
+            const camYaw = (() => {
+                const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                return Math.atan2(fwd.x, -fwd.z); // 0 = looking at -Z
+            })();
+            // Rotate FOV cone to match camera heading
+            radarFov.setAttribute('transform', `rotate(${THREE.MathUtils.radToDeg(camYaw)})`);
+
+            for (const s of state.spheres) {
+                if (!s.mesh.userData.alive) continue;
+                const dx = s.mesh.position.x;
+                const dz = s.mesh.position.z;
+                // Map world to radar coords: forward = up (-y on svg)
+                // Radar radius 40 → world distance ~3m
+                const scale = 40 / 3;
+                const rx = dx * scale;
+                const ry = dz * scale; // world -z is "forward"; in svg up is -y, so dz directly
+                const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                c.setAttribute('cx', rx);
+                c.setAttribute('cy', ry);
+                c.setAttribute('r', 2.5);
+                c.setAttribute('class', 'radar-blip' + (s.type.key === 'rare' ? ' rare' : ''));
+                radarBlips.appendChild(c);
+            }
+        }
+
+        // ─── Phases ─────────────────────────────────────────────
+        function enterPhase(p) {
+            state.phase = p;
+
+            // Hide all
+            hud.style.display = 'none';
+            banner.style.display = 'none';
+            crosshair.style.display = 'none';
+            phaseActions.style.display = 'none';
+            shootRow.style.display = 'none';
+            radar.style.display = 'none';
+            reticle.visible = false;
+
+            if (p === PHASES.SCAN) {
+                state.scanCoverage = new Set();
+                banner.style.display = 'block';
+                banner.innerHTML = '<b>MAPEANDO AMBIENTE</b><br>Gire em volta — 0%';
+                phaseActions.style.display = 'flex';
+                phaseActions.innerHTML = '';
+                const skip = mkBtn('PULAR MAPEAMENTO', 'secondary', () => enterPhase(PHASES.PLACE));
+                const cancel = mkBtn('CANCELAR', 'secondary', () => exitToStart());
+                phaseActions.appendChild(skip);
+                phaseActions.appendChild(cancel);
+            }
+            else if (p === PHASES.PLACE) {
+                // Anchor calibration: current alpha becomes "forward"
+                if (state.orientBaseAlpha == null) state.orientBaseAlpha = state.orient.alpha || 0;
+                crosshair.style.display = 'block';
+                banner.style.display = 'block';
+                reticle.visible = true;
+                radar.style.display = 'block';
+                phaseActions.style.display = 'flex';
+                updatePlaceUI();
+            }
+            else if (p === PHASES.PLAY) {
+                hud.style.display = 'flex';
+                crosshair.style.display = 'block';
+                shootRow.style.display = 'flex';
+                radar.style.display = 'block';
+                banner.style.display = 'block';
+                banner.innerHTML = '<b>FOGO!</b> Gire o celular para mirar';
+                setTimeout(() => banner.style.display = 'none', 2200);
+                startTimer();
+            }
+            else if (p === PHASES.OVER) {
+                showGameOver();
+            }
+        }
+
+        function mkBtn(label, variant, onClick) {
+            const b = document.createElement('button');
+            b.className = 'btn-phase interactive' + (variant === 'secondary' ? ' secondary' : '');
+            b.textContent = label;
+            b.addEventListener('click', onClick);
+            return b;
+        }
+
+        function updatePlaceUI() {
+            const count = state.spheres.length;
+            banner.innerHTML = '<b>POSICIONE AS ESFERAS</b><br>' + count + ' / ' + MAX_PLACE +
+                ' — aponte e toque <b>POSICIONAR</b>';
+            phaseActions.innerHTML = '';
+
+            phaseActions.appendChild(mkBtn('LIMPAR', 'secondary', () => { clearSpheres(); updatePlaceUI(); }));
+
+            const placeBtn = mkBtn(
+                count < MAX_PLACE ? 'POSICIONAR' : 'MAX ATINGIDO',
+                '',
+                () => { spawnSphereAtCameraDir(); }
+            );
+            placeBtn.disabled = count >= MAX_PLACE;
+            phaseActions.appendChild(placeBtn);
+
+            const startBtn = mkBtn(
+                count >= MIN_PLACE ? 'INICIAR JOGO' : `MIN ${MIN_PLACE} ESFERAS`,
+                '',
+                () => { if (state.spheres.length >= MIN_PLACE) enterPhase(PHASES.PLAY); }
+            );
+            startBtn.disabled = count < MIN_PLACE;
+            phaseActions.appendChild(startBtn);
+        }
+
+        // ─── Timer ──────────────────────────────────────────────
+        let timerInterval = null;
+        function startTimer() {
+            state.timeLeft = 30;
+            timerEl.textContent = '30';
+            timerEl.className = 'hud-value';
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                state.timeLeft--;
+                timerEl.textContent = state.timeLeft;
+                if (state.timeLeft <= 8) timerEl.className = 'hud-value danger';
+                else if (state.timeLeft <= 15) timerEl.className = 'hud-value warning';
+                if (state.timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    timerInterval = null;
+                    enterPhase(PHASES.OVER);
+                }
+            }, 1000);
+        }
+
+        // ─── Game flow ──────────────────────────────────────────
+        async function startGame() {
+            try {
+                if (!mediaStream) await startCamera();
+                if (!state.orientReady) await requestOrientationPermission();
+            } catch (err) {
+                showError(err);
+                return;
+            }
+            resetGameState();
+            startScreen.classList.add('hidden');
+            gameoverScreen.classList.add('hidden');
+            errScreen.classList.add('hidden');
+            enterPhase(PHASES.SCAN);
+        }
+
+        function resetGameState() {
+            state.score = 0;
+            state.hits = 0;
+            state.timeLeft = 30;
+            state.lastShotAt = 0;
+            state.orientBaseAlpha = null;
+            state.scanCoverage = new Set();
+            clearSpheres();
+            scoreEl.textContent = '000';
+            timerEl.textContent = '30';
+            timerEl.className = 'hud-value';
+            hitsEl.textContent = '0';
+            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        }
+
+        function exitToStart() {
+            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+            clearSpheres();
+            state.phase = PHASES.IDLE;
+            hud.style.display = 'none';
+            banner.style.display = 'none';
+            crosshair.style.display = 'none';
+            phaseActions.style.display = 'none';
+            shootRow.style.display = 'none';
+            radar.style.display = 'none';
+            reticle.visible = false;
+            startScreen.classList.remove('hidden');
+        }
+
+        function showGameOver() {
+            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+            if (state.score > state.best) {
+                state.best = state.score;
+                localStorage.setItem('arSpheresBest', state.best);
+            }
+            $('final-score').textContent = state.score;
+            $('final-hits').textContent = state.hits;
+            $('best-score').textContent = state.best;
+
+            hud.style.display = 'none';
+            banner.style.display = 'none';
+            crosshair.style.display = 'none';
+            phaseActions.style.display = 'none';
+            shootRow.style.display = 'none';
+            radar.style.display = 'none';
+            reticle.visible = false;
+            clearSpheres();
+
+            gameoverScreen.classList.remove('hidden');
+            state.phase = PHASES.IDLE;
+        }
+
+        function showError(err) {
+            console.error('[Esferas RA]', err);
+            const isHttps = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+            let msg = (err && err.message) ? err.message : String(err);
+            let hint = '';
+
+            if (!isHttps) {
+                hint = '<br><br><b>Causa provável:</b> a página precisa rodar em <b>HTTPS</b>. Abrir o arquivo direto (<code>file://</code>) não funciona — câmera e giroscópio só funcionam em <code>https://</code> ou <code>localhost</code>.';
+            } else if (err && err.name === 'NotAllowedError') {
+                hint = '<br><br><b>Causa provável:</b> permissão negada. Permita câmera (e em iOS também "Movimento e Orientação") nas configurações do navegador.';
+            } else if (err && err.name === 'NotFoundError') {
+                hint = '<br><br><b>Causa provável:</b> nenhuma câmera encontrada.';
+            } else if (err && err.name === 'NotReadableError') {
+                hint = '<br><br><b>Causa provável:</b> a câmera está ocupada por outro app.';
+            } else {
+                hint = '<br><br>Verifique HTTPS, permissões de câmera e movimento, e tente recarregar.';
+            }
+            errMsg.innerHTML = '<b>Erro:</b> ' + msg + hint;
+            startScreen.classList.add('hidden');
+            gameoverScreen.classList.add('hidden');
+            errScreen.classList.remove('hidden');
+        }
+
+        // ─── Render loop ────────────────────────────────────────
+        function animate() {
+            requestAnimationFrame(animate);
+
+            updateCameraOrientation();
+
+            const now = performance.now();
+            const t = now * 0.001;
+
+            // Animate spheres
+            for (const s of state.spheres) {
+                const m = s.mesh;
+                if (m.userData.popStart) {
+                    const k = Math.min(1, (now - m.userData.popStart) / 220);
+                    const eased = 1 - Math.pow(1 - k, 3);
+                    m.scale.setScalar(eased);
+                    if (k >= 1) delete m.userData.popStart;
+                }
+                if (m.userData.outStart) {
+                    const k = Math.min(1, (now - m.userData.outStart) / 260);
+                    m.scale.setScalar(1 + k * 1.6);
+                    m.children.forEach(c => { if (c.material) { c.material.transparent = true; c.material.opacity = Math.max(0, 1 - k); } });
+                    m.material.transparent = true;
+                    m.material.opacity = Math.max(0, 1 - k);
+                    continue;
+                }
+                if (m.userData.alive) {
+                    m.position.y = m.userData.baseY + Math.sin(t * 1.8 + m.userData.bobPhase) * 0.06;
+                    m.rotation.y += 0.012;
+                    // Keep aura ring facing camera
+                    m.children.forEach(c => c.lookAt(camera.position));
+                }
+            }
+
+            // Reticle in front of camera (PLACE phase)
+            if (state.phase === PHASES.PLACE) {
+                const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                const pos = fwd.clone().multiplyScalar(PLACE_DISTANCE);
+                reticle.position.copy(pos);
+                reticle.lookAt(camera.position);
+            }
+
+            // Crosshair lock
+            updateCrosshairLock();
+
+            // Radar updates (cheap enough every frame)
+            if (radar.style.display !== 'none') updateRadar();
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // ─── Buttons ────────────────────────────────────────────
+        $('btn-start').addEventListener('click', startGame);
+        $('btn-restart').addEventListener('click', startGame);
+        $('btn-retry').addEventListener('click', () => {
+            errScreen.classList.add('hidden');
+            startScreen.classList.remove('hidden');
+        });
+
+        const onShootDown = (e) => { e.preventDefault(); shoot(); };
+        $('shoot-l').addEventListener('touchstart', onShootDown, { passive: false });
+        $('shoot-r').addEventListener('touchstart', onShootDown, { passive: false });
+        $('shoot-l').addEventListener('mousedown', onShootDown);
+        $('shoot-r').addEventListener('mousedown', onShootDown);
+
+        document.addEventListener('contextmenu', e => e.preventDefault());
+        document.addEventListener('gesturestart', e => e.preventDefault());
+    </script>
+</body>
+
+</html>
