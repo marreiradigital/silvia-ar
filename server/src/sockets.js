@@ -67,12 +67,15 @@ export function attachSocketHandlers(io, { rooms, games }) {
         });
 
         // ── Game lifecycle (Fase 3) ──
-        // Host starts the game: lobby → placing
+        // Host starts the game: lobby → placing (resetando se já havia partida)
         socket.on('game:start', async (_payload, ack) => {
             try {
                 const me = await rooms.findPlayerBySocket(socket.id);
                 if (!me) return ack?.({ ok: false, error: 'not_in_room' });
                 if (!me.isHost) return ack?.({ ok: false, error: 'not_host' });
+
+                // Limpa qualquer timer de partida pendente — host está reiniciando do zero
+                clearPlayTimer(me.code);
 
                 const room = await rooms.getRoom(me.code);
                 const result = games.start(me.code, room?.scoringRules);

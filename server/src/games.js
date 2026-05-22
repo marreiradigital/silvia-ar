@@ -41,10 +41,9 @@ export function createGames() {
     }
 
     function start(code, scoringRules) {
+        // Host pode reiniciar de qualquer estado (incluindo placing/playing).
+        // Caller (sockets.js) é responsável por limpar o playTimer pendente.
         const g = ensure(code, scoringRules);
-        if (g.status !== 'waiting' && g.status !== 'ended') {
-            return { ok: false, error: 'invalid_state' };
-        }
         g.spheres = new Map();
         g.scores = new Map();
         g.sphereCounter = 0;
