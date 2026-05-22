@@ -519,9 +519,9 @@
     }
     </script>
 
-    <!-- MindAR (image tracking pra detectar o marcador QR automaticamente).
-         Carregado em /head/ pra estar pronto quando o cliente chamar window.MINDAR. -->
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"></script>
+    <!-- MindAR 1.1.5 (UMD) — detecta marcador QR automaticamente.
+         Versões 1.2+ viraram ESM e exigem importmap, daí o pin em 1.1.5. -->
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.1.5/dist/mindar-image-three.prod.js"></script>
 </head>
 
 <body>
