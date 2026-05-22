@@ -1303,12 +1303,62 @@
         }
 
         async function onCalibrateTap() {
-            // This is the only place we request camera/orientation — it's a user gesture,
-            // which is required by iOS Safari for DeviceOrientationEvent.requestPermission().
+            // iOS Safari perde o contexto do user-gesture através de awaits.
+            // Disparamos AMBAS as Promises sincronamente AQUI dentro, antes de qualquer await.
+            // Senão DeviceOrientationEvent.requestPermission() lança InvalidStateError.
+            let camPromise = null;
+            let orientPromise = null;
+
+            if (!mediaStream && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                camPromise = navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false,
+                }).catch(() => navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
+            }
+            if (!gameState.orientReady &&
+                typeof DeviceOrientationEvent !== 'undefined' &&
+                typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    orientPromise = DeviceOrientationEvent.requestPermission();
+                } catch (syncErr) {
+                    // InvalidStateError pode ser lançado síncrono se chamado fora de user gesture
+                    showGameError(new Error(
+                        'iOS recusou a permissão de orientação (InvalidStateError). ' +
+                        'Toque em CALIBRAR diretamente — não acesse via página externa.',
+                    ));
+                    return;
+                }
+            }
+
             try {
-                if (!mediaStream) await startCamera();
-                if (!gameState.orientReady) await requestOrientationPermission();
-                // Wait briefly for the first orientation event to arrive
+                // Orientação primeiro
+                if (orientPromise) {
+                    const res = await orientPromise;
+                    if (res !== 'granted') {
+                        throw new Error(
+                            'Permissão de orientação negada. ' +
+                            'Em iPhone: Ajustes → Safari → Movimento e Orientação → ON, depois recarregue.',
+                        );
+                    }
+                }
+                if (!gameState.orientReady) {
+                    if ('ondeviceorientationabsolute' in window) {
+                        window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
+                    }
+                    window.addEventListener('deviceorientation', onDeviceOrientation, true);
+                }
+
+                // Câmera depois
+                if (camPromise) {
+                    mediaStream = await camPromise;
+                    cam.srcObject = mediaStream;
+                    await new Promise((resolve, reject) => {
+                        cam.onloadedmetadata = () => cam.play().then(resolve).catch(reject);
+                        setTimeout(() => reject(new Error('A câmera demorou para responder.')), 10000);
+                    });
+                }
+
+                // Espera o 1º evento de orientação chegar
                 if (!gameState.orientReady) {
                     await new Promise(resolve => {
                         const start = Date.now();
@@ -1324,7 +1374,10 @@
                 return;
             }
             if (!gameState.orientReady) {
-                showGameError(new Error('Giroscópio não disponível neste dispositivo.'));
+                showGameError(new Error(
+                    'Giroscópio não disponível. ' +
+                    'Em iPhone, verifique Ajustes → Safari → Movimento e Orientação.',
+                ));
                 return;
             }
             gameState.orientBaseAlpha = gameState.orient.alpha || 0;
