@@ -518,6 +518,10 @@
         }
     }
     </script>
+
+    <!-- MindAR (image tracking pra detectar o marcador QR automaticamente).
+         Carregado em /head/ pra estar pronto quando o cliente chamar window.MINDAR. -->
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"></script>
 </head>
 
 <body>
@@ -529,6 +533,10 @@
     <!-- Camera background + Three.js canvas (shown during GAME) -->
     <video id="cam" autoplay playsinline muted webkit-playsinline></video>
     <canvas id="scene"></canvas>
+
+    <!-- MindAR container — ativo SÓ durante a detecção do marcador QR.
+         MindAR cria seu próprio <video> e <canvas> aqui dentro. -->
+    <div id="mindar-container" style="position: fixed; inset: 0; z-index: 5; display: none; background: #000; overflow: hidden;"></div>
 
     <!-- ───── SCREEN: HOME ───── -->
     <div id="screen-home" class="screen">
@@ -1106,12 +1114,16 @@
             setObjectQuaternion(camera3.quaternion, alpha, beta, gamma, orient);
         }
 
+        let orientAnyReceived = false;
         function onDeviceOrientation(ev) {
-            if (ev.alpha == null) return;
-            gameState.orient.alpha = ev.alpha;
-            gameState.orient.beta = ev.beta;
-            gameState.orient.gamma = ev.gamma;
-            gameState.orientReady = true;
+            orientAnyReceived = true;
+            // Atualiza o que vier (alguns Android emitem com alpha=null no início
+            // enquanto magnetômetro ainda não calibrou — aceitamos beta/gamma).
+            if (ev.alpha != null) gameState.orient.alpha = ev.alpha;
+            if (ev.beta != null)  gameState.orient.beta  = ev.beta;
+            if (ev.gamma != null) gameState.orient.gamma = ev.gamma;
+            // orientReady só fica true quando temos alpha — é o yaw, eixo crítico.
+            if (ev.alpha != null) gameState.orientReady = true;
         }
 
         async function requestOrientationPermission() {
@@ -1298,10 +1310,12 @@
 
             if (p === PHASES.CALIBRATE) {
                 banner.style.display = 'block';
-                banner.innerHTML = '<b>CALIBRAR</b><br>Aponte a câmera para o marcador QR e toque CALIBRAR';
+                banner.innerHTML = '<b>CALIBRAR</b><br>Aponte a câmera para o marcador QR. ' +
+                    'Tocar abaixo abre a câmera e detecta o marcador automaticamente.';
                 phaseActions.style.display = 'flex';
                 phaseActions.innerHTML = '';
-                phaseActions.appendChild(mkBtn('CALIBRAR', '', onCalibrateTap));
+                phaseActions.appendChild(mkBtn('DETECTAR AUTOMÁTICO', '', () => onCalibrateTap('auto')));
+                phaseActions.appendChild(mkBtn('CALIBRAR MANUAL', 'secondary', () => onCalibrateTap('manual')));
             }
             else if (p === PHASES.PLACE) {
                 crosshair.style.display = 'block';
@@ -1338,25 +1352,90 @@
             console.log('[silvia]', msg);
         }
 
-        async function onCalibrateTap() {
-            dbg(`tap CALIBRAR — orientReady=${gameState.orientReady} mediaStream=${!!mediaStream}`);
+        // ─── MindAR auto-detection (Fase 6) ────────────────────────
+        let mindarSession = null;
+        async function runMindARDetection() {
+            if (typeof window.MINDAR === 'undefined' || !window.MINDAR.IMAGE) {
+                throw new Error('MindAR não carregou (verifique conexão).');
+            }
+            const container = $('mindar-container');
+            container.style.display = 'block';
+
+            mindarSession = new window.MINDAR.IMAGE.MindARThree({
+                container: container,
+                imageTargetSrc: '/marker.mind',
+                uiLoading: 'no',
+                uiScanning: 'no',
+                uiError: 'no',
+                filterMinCF: 0.0001,
+                filterBeta: 0.001,
+            });
+            const anchor = mindarSession.addAnchor(0);
+
+            let detectedAt = null;
+            anchor.onTargetFound = () => {
+                detectedAt = Date.now();
+                dbg('MindAR: QR detectado');
+                banner.innerHTML = '<b>QR DETECTADO!</b><br>Mantenha apontado por 1 segundo...';
+            };
+            anchor.onTargetLost = () => {
+                detectedAt = null;
+                dbg('MindAR: QR perdido');
+                banner.innerHTML = '<b>PROCURANDO MARCADOR</b><br>Aponte a câmera direto pro QR';
+            };
+
+            banner.innerHTML = '<b>INICIANDO CÂMERA...</b><br>Aguarde';
+            try {
+                await mindarSession.start();
+                dbg('MindAR: start ok');
+            } catch (e) {
+                container.style.display = 'none';
+                dbg(`MindAR start falhou: ${e.message}`);
+                throw e;
+            }
+            banner.innerHTML = '<b>PROCURANDO MARCADOR</b><br>Aponte a câmera direto pro QR';
+
+            // Aguarda detecção estável (mantida por >=STABLE_MS)
+            const STABLE_MS = 1000;
+            const TIMEOUT_MS = 30000;
+            const t0 = Date.now();
+            while (Date.now() - t0 < TIMEOUT_MS) {
+                await new Promise(r => setTimeout(r, 100));
+                if (detectedAt && Date.now() - detectedAt >= STABLE_MS) {
+                    dbg('MindAR: detecção estável');
+                    break;
+                }
+            }
+
+            const captured = {
+                alpha: gameState.orient.alpha,
+                detected: !!detectedAt,
+            };
+
+            try { await mindarSession.stop(); } catch (e) { dbg(`mindar.stop falhou: ${e.message}`); }
+            mindarSession = null;
+            container.style.display = 'none';
+
+            if (!captured.detected) {
+                throw new Error('Marcador não detectado em ' + (TIMEOUT_MS / 1000) + 's. Tente calibrar manualmente.');
+            }
+            return captured;
+        }
+
+        async function stopMindARIfRunning() {
+            if (mindarSession) {
+                try { await mindarSession.stop(); } catch (e) {}
+                mindarSession = null;
+                $('mindar-container').style.display = 'none';
+            }
+        }
+
+        async function onCalibrateTap(mode = 'auto') {
+            dbg(`tap CALIBRAR (mode=${mode}) — orientReady=${gameState.orientReady} mediaStream=${!!mediaStream}`);
             dbg(`UA=${navigator.userAgent.slice(0, 80)}`);
 
-            // iOS Safari perde o user-gesture através de awaits.
-            // Disparamos AMBAS as Promises sincronamente AQUI, antes de qualquer await.
-            let camPromise = null;
+            // iOS Safari: dispara permissão de orient SINCRONAMENTE no user-gesture
             let orientPromise = null;
-
-            if (!mediaStream && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                dbg('disparando getUserMedia (env)');
-                camPromise = navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-                    audio: false,
-                }).catch(e => {
-                    dbg(`getUserMedia env falhou: ${e.name} — fallback pra qualquer câmera`);
-                    return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                });
-            }
             if (!gameState.orientReady &&
                 typeof DeviceOrientationEvent !== 'undefined' &&
                 typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -1373,18 +1452,17 @@
             }
 
             try {
-                // 1) Orientação
+                // Permissão de orientação
                 if (orientPromise) {
                     const res = await orientPromise;
                     dbg(`requestPermission → ${res}`);
                     if (res !== 'granted') {
-                        const e = new Error(
-                            'Permissão de orientação negada. Em iPhone: Ajustes → Safari → Movimento e Orientação → ON, depois recarregue.',
-                        );
+                        const e = new Error('Permissão de orientação negada. Em iPhone: Ajustes → Safari → Movimento e Orientação → ON, recarregue.');
                         e.name = 'OrientationDenied';
                         throw e;
                     }
                 }
+                // Listeners de orientação (sempre — funciona pra Android também)
                 if (!gameState.orientReady) {
                     if ('ondeviceorientationabsolute' in window) {
                         window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
@@ -1393,61 +1471,86 @@
                     dbg('listeners de orientation anexados');
                 }
 
-                // 2) Câmera
-                if (camPromise) {
-                    mediaStream = await camPromise;
-                    dbg(`getUserMedia ok — tracks: ${mediaStream.getVideoTracks().map(t => t.label).join(', ')}`);
+                // Modo AUTO: usa MindAR pra detectar o QR
+                if (mode === 'auto') {
+                    try {
+                        const captured = await runMindARDetection();
+                        dbg(`MindAR capturou alpha=${captured.alpha}`);
+                    } catch (mindErr) {
+                        dbg(`MindAR falhou (${mindErr.message}) — oferecendo manual`);
+                        await stopMindARIfRunning();
+                        // Mostra opção manual em vez de erro fatal
+                        offerManualFallback(mindErr.message);
+                        return;
+                    }
+                }
+
+                // Após MindAR (ou no modo manual): abre nossa câmera pro jogo
+                if (!mediaStream && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    dbg('iniciando câmera do jogo (pós-MindAR)');
+                    try {
+                        mediaStream = await navigator.mediaDevices.getUserMedia({
+                            video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+                            audio: false,
+                        });
+                    } catch (e) {
+                        dbg(`getUserMedia env falhou (${e.name}) — fallback`);
+                        mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    }
                     cam.srcObject = mediaStream;
-
-                    // play() pode rejeitar no iOS mesmo com srcObject ok — IGNORAMOS.
-                    // O <video> tem autoplay/playsinline/muted, vai tocar mesmo.
-                    cam.play().catch(e => dbg(`cam.play() rejected (não-fatal): ${e.name} ${e.message}`));
-
-                    // Espera apenas metadata (não dependemos do play resolver)
+                    cam.play().catch(e => dbg(`cam.play() rejected (não-fatal): ${e.name}`));
                     await new Promise((resolve, reject) => {
-                        if (cam.readyState >= 1) {
-                            dbg('video já tinha readyState>=1, seguindo');
-                            return resolve();
-                        }
+                        if (cam.readyState >= 1) return resolve();
                         const t = setTimeout(() => reject(new Error('Câmera demorou para responder.')), 10000);
-                        cam.addEventListener('loadedmetadata', () => {
-                            clearTimeout(t);
-                            dbg('loadedmetadata recebido');
-                            resolve();
-                        }, { once: true });
+                        cam.addEventListener('loadedmetadata', () => { clearTimeout(t); resolve(); }, { once: true });
                     });
                 }
 
-                // 3) Aguarda o 1º evento de orientação
+                // Aguarda eventos de orientação (até 8s, alguns Android demoram)
                 if (!gameState.orientReady) {
-                    dbg('aguardando 1º evento de orientation...');
+                    dbg('aguardando 1º evento de orientation (alpha)...');
                     await new Promise(resolve => {
                         const start = Date.now();
                         const check = setInterval(() => {
-                            if (gameState.orientReady || Date.now() - start > 3000) {
+                            if (gameState.orientReady || Date.now() - start > 8000) {
                                 clearInterval(check);
                                 resolve();
                             }
                         }, 50);
                     });
-                    dbg(`fim do wait — orientReady=${gameState.orientReady}`);
+                    dbg(`fim do wait — orientReady=${gameState.orientReady} anyReceived=${orientAnyReceived}`);
                 }
             } catch (err) {
                 dbg(`ERRO: ${err.name} — ${err.message}`);
+                await stopMindARIfRunning();
                 showGameError(err);
                 return;
             }
 
             if (!gameState.orientReady) {
-                const e = new Error('Giroscópio não disponível. Em iPhone: Ajustes → Safari → Movimento e Orientação.');
+                const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+                const e = new Error(orientAnyReceived
+                    ? 'Magnetômetro do dispositivo não retornou ângulo (alpha). ' +
+                      'Gire o celular em forma de "8" no ar pra calibrar a bússola, depois tente de novo.'
+                    : (isIOS
+                        ? 'Giroscópio não disponível. Em iPhone: Ajustes → Safari → Movimento e Orientação → ON.'
+                        : 'Giroscópio não disponível. No Android: verifique se concedeu permissão de sensores ao Chrome.'));
                 e.name = 'NoOrientationEvents';
-                dbg(`ERRO: ${e.name}`);
+                dbg(`ERRO: ${e.name} anyReceived=${orientAnyReceived}`);
                 showGameError(e);
                 return;
             }
             gameState.orientBaseAlpha = gameState.orient.alpha || 0;
             dbg(`calibrado com alpha=${gameState.orientBaseAlpha.toFixed(1)}, fase=${app.you?.isHost ? 'PLACE' : 'WATCH'}`);
             enterPhase(app.you?.isHost ? PHASES.PLACE : PHASES.WATCH);
+        }
+
+        function offerManualFallback(reason) {
+            banner.style.display = 'block';
+            banner.innerHTML = `<b>DETECÇÃO AUTOMÁTICA FALHOU</b><br>${escapeHtml(reason)}`;
+            phaseActions.innerHTML = '';
+            phaseActions.appendChild(mkBtn('CALIBRAR MANUALMENTE', '', () => onCalibrateTap('manual')));
+            phaseActions.appendChild(mkBtn('TENTAR DETECÇÃO DE NOVO', 'secondary', () => onCalibrateTap('auto')));
         }
 
         function updatePlaceUI() {
@@ -1542,6 +1645,8 @@
         }
 
         function stopGameMidway() {
+            // Mata MindAR (se rodando) — não bloqueia, fire-and-forget
+            stopMindARIfRunning().catch(() => {});
             if (app.timer.intervalId) {
                 clearInterval(app.timer.intervalId);
                 app.timer.intervalId = null;
