@@ -652,7 +652,9 @@
     <div id="screen-error" class="screen hidden">
         <div class="err-title">ALGO DEU ERRADO</div>
         <div class="err-msg" id="err-msg"></div>
+        <pre id="err-diag" style="display:none; max-width:90%; max-height:50vh; overflow:auto; background:#0b0d10; border:1px solid rgba(0,255,136,0.3); padding:10px; font-size:10px; line-height:1.4; color:#7a8a85; text-align:left; white-space:pre-wrap; word-break:break-all;"></pre>
         <button class="btn" id="btn-err-retry">Tentar novamente</button>
+        <button class="btn secondary" id="btn-err-diag">Mostrar diagnóstico</button>
     </div>
 
     <!-- Socket.IO client (served by the server itself) -->
@@ -997,6 +999,31 @@
             showScreen(app.room ? 'lobby' : 'home');
         });
 
+        $('btn-err-diag').addEventListener('click', async () => {
+            const pane = $('err-diag');
+            const btn = $('btn-err-diag');
+            if (pane.style.display === 'none') {
+                const text = buildDiagnostic();
+                pane.textContent = text;
+                pane.style.display = 'block';
+                btn.textContent = 'Copiar diagnóstico';
+            } else {
+                const text = pane.textContent;
+                try {
+                    await navigator.clipboard.writeText(text);
+                    btn.textContent = '✓ copiado — cole pro Paulo';
+                    setTimeout(() => btn.textContent = 'Copiar diagnóstico', 3000);
+                } catch (e) {
+                    // fallback: seleciona
+                    const range = document.createRange();
+                    range.selectNodeContents(pane);
+                    getSelection().removeAllRanges();
+                    getSelection().addRange(range);
+                    btn.textContent = '✓ selecionado — copie manualmente';
+                }
+            }
+        });
+
         // ════════════════════════════════════════════════════════
         //  THREE.JS SETUP
         // ════════════════════════════════════════════════════════
@@ -1302,43 +1329,60 @@
             }
         }
 
+        // Debug log: mantém últimas N entradas pra mostrar em DIAGNÓSTICO se der erro
+        const debugLog = [];
+        function dbg(msg) {
+            const line = `[${new Date().toISOString().slice(11, 23)}] ${msg}`;
+            debugLog.push(line);
+            if (debugLog.length > 50) debugLog.shift();
+            console.log('[silvia]', msg);
+        }
+
         async function onCalibrateTap() {
-            // iOS Safari perde o contexto do user-gesture através de awaits.
-            // Disparamos AMBAS as Promises sincronamente AQUI dentro, antes de qualquer await.
-            // Senão DeviceOrientationEvent.requestPermission() lança InvalidStateError.
+            dbg(`tap CALIBRAR — orientReady=${gameState.orientReady} mediaStream=${!!mediaStream}`);
+            dbg(`UA=${navigator.userAgent.slice(0, 80)}`);
+
+            // iOS Safari perde o user-gesture através de awaits.
+            // Disparamos AMBAS as Promises sincronamente AQUI, antes de qualquer await.
             let camPromise = null;
             let orientPromise = null;
 
             if (!mediaStream && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                dbg('disparando getUserMedia (env)');
                 camPromise = navigator.mediaDevices.getUserMedia({
                     video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
                     audio: false,
-                }).catch(() => navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
+                }).catch(e => {
+                    dbg(`getUserMedia env falhou: ${e.name} — fallback pra qualquer câmera`);
+                    return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                });
             }
             if (!gameState.orientReady &&
                 typeof DeviceOrientationEvent !== 'undefined' &&
                 typeof DeviceOrientationEvent.requestPermission === 'function') {
                 try {
+                    dbg('disparando DeviceOrientationEvent.requestPermission()');
                     orientPromise = DeviceOrientationEvent.requestPermission();
                 } catch (syncErr) {
-                    // InvalidStateError pode ser lançado síncrono se chamado fora de user gesture
-                    showGameError(new Error(
-                        'iOS recusou a permissão de orientação (InvalidStateError). ' +
-                        'Toque em CALIBRAR diretamente — não acesse via página externa.',
-                    ));
+                    dbg(`requestPermission lançou síncrono: ${syncErr.name}`);
+                    showGameError(syncErr);
                     return;
                 }
+            } else {
+                dbg('requestPermission não necessário (Android ou já ready)');
             }
 
             try {
-                // Orientação primeiro
+                // 1) Orientação
                 if (orientPromise) {
                     const res = await orientPromise;
+                    dbg(`requestPermission → ${res}`);
                     if (res !== 'granted') {
-                        throw new Error(
-                            'Permissão de orientação negada. ' +
-                            'Em iPhone: Ajustes → Safari → Movimento e Orientação → ON, depois recarregue.',
+                        const e = new Error(
+                            'Permissão de orientação negada. Em iPhone: Ajustes → Safari → Movimento e Orientação → ON, depois recarregue.',
                         );
+                        e.name = 'OrientationDenied';
+                        throw e;
                     }
                 }
                 if (!gameState.orientReady) {
@@ -1346,41 +1390,63 @@
                         window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
                     }
                     window.addEventListener('deviceorientation', onDeviceOrientation, true);
+                    dbg('listeners de orientation anexados');
                 }
 
-                // Câmera depois
+                // 2) Câmera
                 if (camPromise) {
                     mediaStream = await camPromise;
+                    dbg(`getUserMedia ok — tracks: ${mediaStream.getVideoTracks().map(t => t.label).join(', ')}`);
                     cam.srcObject = mediaStream;
+
+                    // play() pode rejeitar no iOS mesmo com srcObject ok — IGNORAMOS.
+                    // O <video> tem autoplay/playsinline/muted, vai tocar mesmo.
+                    cam.play().catch(e => dbg(`cam.play() rejected (não-fatal): ${e.name} ${e.message}`));
+
+                    // Espera apenas metadata (não dependemos do play resolver)
                     await new Promise((resolve, reject) => {
-                        cam.onloadedmetadata = () => cam.play().then(resolve).catch(reject);
-                        setTimeout(() => reject(new Error('A câmera demorou para responder.')), 10000);
+                        if (cam.readyState >= 1) {
+                            dbg('video já tinha readyState>=1, seguindo');
+                            return resolve();
+                        }
+                        const t = setTimeout(() => reject(new Error('Câmera demorou para responder.')), 10000);
+                        cam.addEventListener('loadedmetadata', () => {
+                            clearTimeout(t);
+                            dbg('loadedmetadata recebido');
+                            resolve();
+                        }, { once: true });
                     });
                 }
 
-                // Espera o 1º evento de orientação chegar
+                // 3) Aguarda o 1º evento de orientação
                 if (!gameState.orientReady) {
+                    dbg('aguardando 1º evento de orientation...');
                     await new Promise(resolve => {
                         const start = Date.now();
                         const check = setInterval(() => {
                             if (gameState.orientReady || Date.now() - start > 3000) {
-                                clearInterval(check); resolve();
+                                clearInterval(check);
+                                resolve();
                             }
                         }, 50);
                     });
+                    dbg(`fim do wait — orientReady=${gameState.orientReady}`);
                 }
             } catch (err) {
+                dbg(`ERRO: ${err.name} — ${err.message}`);
                 showGameError(err);
                 return;
             }
+
             if (!gameState.orientReady) {
-                showGameError(new Error(
-                    'Giroscópio não disponível. ' +
-                    'Em iPhone, verifique Ajustes → Safari → Movimento e Orientação.',
-                ));
+                const e = new Error('Giroscópio não disponível. Em iPhone: Ajustes → Safari → Movimento e Orientação.');
+                e.name = 'NoOrientationEvents';
+                dbg(`ERRO: ${e.name}`);
+                showGameError(e);
                 return;
             }
             gameState.orientBaseAlpha = gameState.orient.alpha || 0;
+            dbg(`calibrado com alpha=${gameState.orientBaseAlpha.toFixed(1)}, fase=${app.you?.isHost ? 'PLACE' : 'WATCH'}`);
             enterPhase(app.you?.isHost ? PHASES.PLACE : PHASES.WATCH);
         }
 
@@ -1529,23 +1595,78 @@
             }
         }
 
+        let lastError = null;
         function showGameError(err) {
             console.error('[Esferas RA]', err);
+            lastError = err;
             const isHttps = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-            let msg = (err && err.message) ? err.message : String(err);
+            const name = err?.name || 'Error';
+            const msg = err?.message || String(err);
             let hint = '';
             if (!isHttps) {
-                hint = '<br><br><b>Causa provável:</b> a página precisa rodar em <b>HTTPS</b>. Câmera e giroscópio só funcionam em <code>https://</code> ou <code>localhost</code>.';
-            } else if (err && err.name === 'NotAllowedError') {
-                hint = '<br><br><b>Causa provável:</b> permissão negada. Permita câmera (e em iOS também "Movimento e Orientação") nas configurações do navegador.';
-            } else if (err && err.name === 'NotFoundError') {
-                hint = '<br><br><b>Causa provável:</b> nenhuma câmera encontrada.';
-            } else if (err && err.name === 'NotReadableError') {
-                hint = '<br><br><b>Causa provável:</b> a câmera está ocupada por outro app.';
+                hint = '<br><br><b>Causa:</b> a página precisa rodar em <b>HTTPS</b>. Câmera e giroscópio só funcionam em <code>https://</code> ou <code>localhost</code>.';
+            } else if (name === 'NotAllowedError') {
+                hint = '<br><br><b>Causa:</b> permissão de câmera negada. Em iPhone, abra <b>Ajustes → Safari → Câmera → Permitir</b>, recarregue a página.';
+            } else if (name === 'NotFoundError') {
+                hint = '<br><br><b>Causa:</b> nenhuma câmera encontrada.';
+            } else if (name === 'NotReadableError') {
+                hint = '<br><br><b>Causa:</b> a câmera está em uso por outro app (FaceTime, WhatsApp, etc).';
+            } else if (name === 'OverconstrainedError') {
+                hint = '<br><br><b>Causa:</b> a câmera não suporta a resolução/modo pedido.';
+            } else if (name === 'OrientationDenied') {
+                hint = '<br><br>Verifique <b>Ajustes → Safari → Movimento e Orientação</b>.';
+            } else if (name === 'InvalidStateError') {
+                hint = '<br><br><b>Causa:</b> iOS recusou a permissão fora de um toque. Toque em CALIBRAR de novo (sem trocar de aba).';
+            } else if (name === 'NoOrientationEvents') {
+                hint = '<br><br>Permissão foi dada mas o iPhone não emitiu eventos do giroscópio. Tente recarregar.';
             } else {
-                hint = '<br><br>Verifique HTTPS, permissões de câmera e movimento, e tente recarregar.';
+                hint = '<br><br>Toque em <b>Mostrar diagnóstico</b> abaixo e me envia o conteúdo.';
             }
-            showAppError('<b>Erro:</b> ' + msg + hint);
+            showAppError(`<b>${name}:</b> ${msg}${hint}`);
+            // Reset diagnostic panel
+            $('err-diag').style.display = 'none';
+            $('btn-err-diag').textContent = 'Mostrar diagnóstico';
+        }
+
+        function buildDiagnostic() {
+            const lines = [];
+            lines.push('=== DEVICE ===');
+            lines.push(`UA: ${navigator.userAgent}`);
+            lines.push(`platform: ${navigator.platform}`);
+            lines.push(`vendor: ${navigator.vendor}`);
+            lines.push(`languages: ${navigator.languages?.join(',')}`);
+            lines.push(`viewport: ${innerWidth}x${innerHeight} dpr=${devicePixelRatio}`);
+            lines.push('');
+            lines.push('=== CONTEXT ===');
+            lines.push(`location: ${location.href}`);
+            lines.push(`protocol: ${location.protocol}  secure: ${window.isSecureContext}`);
+            lines.push('');
+            lines.push('=== APIs ===');
+            lines.push(`mediaDevices: ${!!navigator.mediaDevices}`);
+            lines.push(`getUserMedia: ${!!navigator.mediaDevices?.getUserMedia}`);
+            lines.push(`DeviceOrientationEvent: ${typeof DeviceOrientationEvent !== 'undefined'}`);
+            lines.push(`DeviceOrientationEvent.requestPermission: ${typeof DeviceOrientationEvent?.requestPermission === 'function'}`);
+            lines.push(`deviceorientationabsolute: ${'ondeviceorientationabsolute' in window}`);
+            lines.push('');
+            lines.push('=== APP STATE ===');
+            lines.push(`screen: ${app.currentScreen}`);
+            lines.push(`phase: ${gameState.phase}`);
+            lines.push(`orientReady: ${gameState.orientReady}`);
+            lines.push(`orientBaseAlpha: ${gameState.orientBaseAlpha}`);
+            lines.push(`orient: ${JSON.stringify(gameState.orient)}`);
+            lines.push(`mediaStream: ${!!mediaStream} tracks=${mediaStream ? mediaStream.getVideoTracks().map(t=>t.label).join('|') : 'none'}`);
+            lines.push(`room.code: ${app.room?.code}  isHost: ${app.you?.isHost}`);
+            lines.push('');
+            if (lastError) {
+                lines.push('=== LAST ERROR ===');
+                lines.push(`name: ${lastError.name}`);
+                lines.push(`message: ${lastError.message}`);
+                lines.push(`stack: ${(lastError.stack || '').slice(0, 500)}`);
+                lines.push('');
+            }
+            lines.push('=== LOG ===');
+            lines.push(...debugLog);
+            return lines.join('\n');
         }
 
         // ════════════════════════════════════════════════════════
